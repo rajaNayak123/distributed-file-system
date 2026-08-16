@@ -1,4 +1,4 @@
-import {PutCommand, GetCommand, UpdateCommand, DeleteCommand} from "@aws-sdk/lib-dynamodb"
+import {PutCommand, GetCommand, UpdateCommand, DeleteCommand, QueryCommand} from "@aws-sdk/lib-dynamodb"
 import defaultDocClient from '../clients/dynamoClient.js';
 import { UpstreamServiceError } from '../utils/errors.js';
 
@@ -82,6 +82,31 @@ export default class MetadataService{
         return false;
       }
       throw new UpstreamServiceError('Failed to delete item in DynamoDB', { cause: error.message });
+    }
+  }
+
+  async query({
+    tableName,
+    keyConditionExpression,
+    expressionAttributeNames,
+    expressionAttributeValues,
+    indexName,
+    limit,
+  }) {
+    try {
+      const result = await this.docClient.send(
+        new QueryCommand({
+          TableName: tableName,
+          IndexName: indexName,
+          KeyConditionExpression: keyConditionExpression,
+          ExpressionAttributeNames: expressionAttributeNames,
+          ExpressionAttributeValues: expressionAttributeValues,
+          Limit: limit,
+        })
+      );
+      return result.Items || [];
+    } catch (err) {
+      throw new UpstreamServiceError('Failed to query DynamoDB', { cause: err.message });
     }
   }
 }
