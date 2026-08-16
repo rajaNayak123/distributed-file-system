@@ -1,4 +1,4 @@
-import {PutCommand, GetCommand, UpdateCommand} from "@aws-sdk/lib-dynamodb"
+import {PutCommand, GetCommand, UpdateCommand, DeleteCommand} from "@aws-sdk/lib-dynamodb"
 import defaultDocClient from '../clients/dynamoClient.js';
 import { UpstreamServiceError } from '../utils/errors.js';
 
@@ -64,5 +64,24 @@ export default class MetadataService{
         }
         throw new UpstreamServiceError('Failed to update item in DynamoDB', { cause: error.message });
       }
+  }
+
+  async deleteItem({ tableName, key, conditionExpression, expressionAttributeNames }) {
+    try {
+      await this.docClient.send(
+        new DeleteCommand({
+          TableName: tableName,
+          Key: key,
+          ConditionExpression: conditionExpression,
+          ExpressionAttributeNames: expressionAttributeNames,
+        })
+      );
+      return true;
+    } catch (error) {
+      if (error.name === 'ConditionalCheckFailedException') {
+        return false;
+      }
+      throw new UpstreamServiceError('Failed to delete item in DynamoDB', { cause: error.message });
+    }
   }
 }
