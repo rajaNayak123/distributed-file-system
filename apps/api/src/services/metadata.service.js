@@ -1,4 +1,4 @@
-import {PutCommand, GetCommand} from "@aws-sdk/lib-dynamodb"
+import {PutCommand, GetCommand, UpdateCommand} from "@aws-sdk/lib-dynamodb"
 import defaultDocClient from '../clients/dynamoClient.js';
 import { UpstreamServiceError } from '../utils/errors.js';
 
@@ -35,5 +35,34 @@ export default class MetadataService{
     } catch (error) {
       throw new UpstreamServiceError('Failed to read item from DynamoDB', { cause: error.message });
     }
+  }
+
+  async updateItem(
+    tableName,
+    key,
+    updateExpression,
+    conditionExpression,
+    expressionAttributeNames,
+    expressionAttributeValues,
+    returnValues = 'ALL_NEW'){
+      try {
+        const result = await this.docClient.send(
+          new UpdateCommand({
+            TableName: tableName,
+            Key: key,
+            UpdateExpression: updateExpression,
+            ConditionExpression: conditionExpression,
+            ExpressionAttributeNames: expressionAttributeNames,
+            ExpressionAttributeValues: expressionAttributeValues,
+            ReturnValues: returnValues,
+          })
+        )
+        return result.Attributes
+      } catch (error) {
+        if (error.name === 'ConditionalCheckFailedException') {
+          throw error;
+        }
+        throw new UpstreamServiceError('Failed to update item in DynamoDB', { cause: error.message });
+      }
   }
 }
