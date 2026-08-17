@@ -95,4 +95,12 @@ export default class FilesRepository{
       throw err;
     }
   }
+
+  async deleteFile({ userId, fileId }) {
+    await this.metadataService.deleteItem({
+      tableName: this.tableName,
+      key: { PK: FilesRepository.pk(userId), SK: FilesRepository.sk(fileId) },
+    });
+    return true;
+  }
 }
