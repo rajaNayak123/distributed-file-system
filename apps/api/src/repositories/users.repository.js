@@ -49,4 +49,14 @@ export default class UsersRepository{
             key: { PK: UsersRepository.pk(userId), SK: 'PROFILE' },
         })
     }
+
+    async getUserByEmail(email) {
+        const items = await this.metadataService.query({
+          tableName: this.tableName,
+          indexName: 'EmailIndex',
+          keyConditionExpression: 'email = :email',
+          expressionAttributeValues: { ':email': email },
+        });
+        return items[0] || null;
+    }
 }
