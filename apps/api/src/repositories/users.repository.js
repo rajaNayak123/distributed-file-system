@@ -42,4 +42,11 @@ export default class UsersRepository{
             throw err;
         }
     }
+
+    async getUserById(userId){
+        return this.metadataService.getItem({
+            tableName: this.tableName,
+            key: { PK: UsersRepository.pk(userId), SK: 'PROFILE' },
+        })
+    }
 }
