@@ -57,4 +57,42 @@ export default class FilesRepository{
     if (includeIncomplete) return items;
     return items.filter((item) => item.status === 'COMPLETED');
   }
+
+  async updateFileStatus({ userId, fileId, fromStatuses, toStatus, extraAttributes = {} }) {
+    const now = new Date().toISOString();
+    const attributeNames = { '#status': 'status', '#updatedAt': 'updatedAt' };
+    const attributeValues = {
+      ':toStatus': toStatus,
+      ':updatedAt': now,
+      ':fromStatuses': fromStatuses,
+    };
+
+    let updateExpression = 'SET #status = :toStatus, #updatedAt = :updatedAt';
+    Object.entries(extraAttributes).forEach(([key, value], idx) => {
+      const nameToken = `#extra${idx}`;
+      const valueToken = `:extra${idx}`;
+      attributeNames[nameToken] = key;
+      attributeValues[valueToken] = value;
+      updateExpression += `, ${nameToken} = ${valueToken}`;
+    });
+
+    try {
+      const updated = await this.metadataService.updateItem({
+        tableName: this.tableName,
+        key: { PK: FilesRepository.pk(userId), SK: FilesRepository.sk(fileId) },
+        updateExpression,
+        conditionExpression: 'attribute_exists(PK) AND contains(:fromStatuses, #status)',
+        expressionAttributeNames: attributeNames,
+        expressionAttributeValues: attributeValues,
+      });
+      return updated;
+    } catch (err) {
+      if (err.name === 'ConditionalCheckFailedException') {
+        throw new ConflictError(
+          `Cannot transition file ${fileId} to ${toStatus}: current status is not one of [${fromStatuses.join(', ')}], or file does not exist`
+        );
+      }
+      throw err;
+    }
+  }
 }
