@@ -1,4 +1,4 @@
-import MetadataService from "../server/metadata.service.js"
+import MetadataService from "../services/metadata.service.js"
 import config from '../config/index.js';
 import { ConflictError } from '../utils/errors.js';
 
