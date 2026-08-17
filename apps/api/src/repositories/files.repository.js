@@ -36,4 +36,12 @@ export default class FilesRepository{
       throw err;
     }
   }
+
+  async getFile({ userId, fileId }) {
+    const item = await this.metadataService.getItem({
+      tableName: this.tableName,
+      key: { PK: FilesRepository.pk(userId), SK: FilesRepository.sk(fileId) },
+    });
+    return item;
+  }
 }
