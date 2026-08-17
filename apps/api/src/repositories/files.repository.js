@@ -103,4 +103,12 @@ export default class FilesRepository{
     });
     return true;
   }
+
+  async requireOwnedFile({ userId, fileId }) {
+    const file = await this.getFile({ userId, fileId });
+    if (!file) {
+      throw new NotFoundError('File not found');
+    }
+    return file;
+  }
 }
