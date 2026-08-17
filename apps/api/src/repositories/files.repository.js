@@ -44,4 +44,17 @@ export default class FilesRepository{
     });
     return item;
   }
+
+  async listFilesForUser({ userId, includeIncomplete = false }) {
+    const items = await this.metadataService.query({
+      tableName: this.tableName,
+      keyConditionExpression: 'PK = :pk AND begins_with(SK, :skPrefix)',
+      expressionAttributeValues: {
+        ':pk': FilesRepository.pk(userId),
+        ':skPrefix': 'FILE#',
+      },
+    });
+    if (includeIncomplete) return items;
+    return items.filter((item) => item.status === 'COMPLETED');
+  }
 }
