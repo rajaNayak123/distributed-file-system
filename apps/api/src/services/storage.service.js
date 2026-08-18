@@ -89,4 +89,17 @@ export default class StorageService{
       });
     }
   }
+
+  //  Generates a short-lived presigned GET URL for downloads. Ownership must be verified by the caller BEFORE calling this this method has no knowledge of who owns the object.
+  async getPresignedGetUrl({ key, expiresInSeconds }) {
+    try {
+      const command = new GetObjectCommand({ Bucket: this.bucket, Key: key });
+      const url = await getSignedUrl(this.s3Client, command, { expiresIn: expiresInSeconds });
+      return url;
+    } catch (err) {
+      throw new UpstreamServiceError('Failed to generate presigned GET URL', {
+        cause: err.message,
+      });
+    }
+  }
 }
