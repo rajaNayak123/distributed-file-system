@@ -72,6 +72,21 @@ export default class StorageService{
       throw new UpstreamServiceError('Failed to delete object from S3', { cause: err.message });
     }
   }
-
-
+  
+  //  Generates a short-lived presigned PUT URL. The API never sees the bytes, the client PUTs directly to S3 using this URL.
+  async getPresignedPutUrl({ key, contentType, expiresInSeconds }) {
+    try {
+      const command = new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        ContentType: contentType,
+      });
+      const url = await getSignedUrl(this.s3Client, command, { expiresIn: expiresInSeconds });
+      return url;
+    } catch (err) {
+      throw new UpstreamServiceError('Failed to generate presigned PUT URL', {
+        cause: err.message,
+      });
+    }
+  }
 }
