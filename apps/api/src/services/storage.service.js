@@ -1,7 +1,8 @@
 import {
   PutObjectCommand,
   GetObjectCommand,
-  HeadObjectCommand
+  HeadObjectCommand,
+  DeleteObjectCommand
 } from '@aws-sdk/client-s3';
 import defaultS3Client from '../clients/s3Client.js';
 import config from '../config/index.js';
@@ -62,4 +63,15 @@ export default class StorageService{
       throw new UpstreamServiceError('Failed to head object in S3', { cause: error.message });
     }
   }
+
+  async deleteObject({ key }) {
+    try {
+      await this.s3Client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+      return { deleted: true };
+    } catch (err) {
+      throw new UpstreamServiceError('Failed to delete object from S3', { cause: err.message });
+    }
+  }
+
+
 }
