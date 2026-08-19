@@ -36,3 +36,13 @@ export async function getDownloadUrl(req, res, next) {
     next(err);
   }
 }
+
+export async function deleteFile(req, res, next) {
+  try {
+    const fileId = assertString(req.params.id, 'id', { minLength: 1, maxLength: 128 });
+    const result = await filesService.deleteFile({ userId: req.user.userId, fileId });
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
