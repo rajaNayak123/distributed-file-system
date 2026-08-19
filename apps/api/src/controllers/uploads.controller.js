@@ -1,5 +1,5 @@
 import UploadsService from '../services/uploads.service.js';
-import { assertFileName, assertContentType, assertPositiveInt } from '../utils/validators.js';
+import { assertFileName, assertContentType, assertPositiveInt, assertString } from '../utils/validators.js';
 import config from '../config/index.js';
 
 const uploadsService = new UploadsService();
@@ -17,6 +17,17 @@ export async function initiateUpload(req, res, next) {
       size,
     });
     res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function completeUpload(req, res, next) {
+  try {
+    const fileId = assertString(req.params.id, 'id', { minLength: 1, maxLength: 128 });
+    const result = await uploadsService.completeUpload({ userId: req.user.userId, fileId });
+    const statusCode = result.status === 'COMPLETED' ? 200 : 422;
+    res.status(statusCode).json(result);
   } catch (err) {
     next(err);
   }
