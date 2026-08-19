@@ -15,3 +15,14 @@ export async function listFiles(req, res, next) {
     next(err);
   }
 }
+
+export async function getFile(req, res, next) {
+  try {
+    const fileId = assertString(req.params.id, 'id', { minLength: 1, maxLength: 128 });
+    const includeIncomplete = parseIncludeIncomplete(req.query);
+    const file = await filesService.getFile({ userId: req.user.userId, fileId, includeIncomplete });
+    res.status(200).json({ file });
+  } catch (err) {
+    next(err);
+  }
+}
