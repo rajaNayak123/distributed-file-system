@@ -2,8 +2,13 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
-  DeleteObjectCommand
+  DeleteObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import defaultS3Client from '../clients/s3Client.js';
 import config from '../config/index.js';
 import { UpstreamServiceError } from '../utils/errors.js';
@@ -100,6 +105,73 @@ export default class StorageService{
       throw new UpstreamServiceError('Failed to generate presigned GET URL', {
         cause: err.message,
       });
+    }
+  }
+
+  async createMultipartUpload({ key, contentType }) {
+    try {
+      const result = await this.s3Client.send(
+        new CreateMultipartUploadCommand({
+          Bucket: this.bucket,
+          Key: key,
+          ContentType: contentType,
+        })
+      );
+      return { uploadId: result.UploadId };
+    } catch (err) {
+      throw new UpstreamServiceError('Failed to create multipart upload', { cause: err.message });
+    }
+  }
+
+  async getPresignedUploadPartUrl({ key, uploadId, partNumber, expiresInSeconds }) {
+    try {
+      const command = new UploadPartCommand({
+        Bucket: this.bucket,
+        Key: key,
+        UploadId: uploadId,
+        PartNumber: partNumber,
+      });
+      const url = await getSignedUrl(this.s3Client, command, { expiresIn: expiresInSeconds });
+      return url;
+    } catch (err) {
+      throw new UpstreamServiceError('Failed to generate presigned upload part URL', {
+        cause: err.message,
+      });
+    }
+  }
+
+  async completeMultipartUpload({ key, uploadId, parts }) {
+    try {
+      // parts is an array of { PartNumber, ETag }
+      const sortedParts = [...parts].sort((a, b) => a.PartNumber - b.PartNumber);
+      const result = await this.s3Client.send(
+        new CompleteMultipartUploadCommand({
+          Bucket: this.bucket,
+          Key: key,
+          UploadId: uploadId,
+          MultipartUpload: {
+            Parts: sortedParts,
+          },
+        })
+      );
+      return result;
+    } catch (err) {
+      throw new UpstreamServiceError('Failed to complete multipart upload', { cause: err.message });
+    }
+  }
+
+  async abortMultipartUpload({ key, uploadId }) {
+    try {
+      await this.s3Client.send(
+        new AbortMultipartUploadCommand({
+          Bucket: this.bucket,
+          Key: key,
+          UploadId: uploadId,
+        })
+      );
+      return { aborted: true };
+    } catch (err) {
+      throw new UpstreamServiceError('Failed to abort multipart upload', { cause: err.message });
     }
   }
 }

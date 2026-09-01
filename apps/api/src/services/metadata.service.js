@@ -1,4 +1,4 @@
-import {PutCommand, GetCommand, UpdateCommand, DeleteCommand, QueryCommand} from "@aws-sdk/lib-dynamodb"
+import {PutCommand, GetCommand, UpdateCommand, DeleteCommand, QueryCommand, ScanCommand} from "@aws-sdk/lib-dynamodb"
 import defaultDocClient from '../clients/dynamoClient.js';
 import { UpstreamServiceError } from '../utils/errors.js';
 
@@ -107,6 +107,27 @@ export default class MetadataService{
       return result.Items || [];
     } catch (err) {
       throw new UpstreamServiceError('Failed to query DynamoDB', { cause: err.message });
+    }
+  }
+
+  async scan({
+    tableName,
+    filterExpression,
+    expressionAttributeNames,
+    expressionAttributeValues,
+  }) {
+    try {
+      const result = await this.docClient.send(
+        new ScanCommand({
+          TableName: tableName,
+          FilterExpression: filterExpression,
+          ExpressionAttributeNames: expressionAttributeNames,
+          ExpressionAttributeValues: expressionAttributeValues,
+        })
+      );
+      return result.Items || [];
+    } catch (err) {
+      throw new UpstreamServiceError('Failed to scan DynamoDB', { cause: err.message });
     }
   }
 }
