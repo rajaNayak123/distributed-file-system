@@ -64,8 +64,12 @@ export default class FilesRepository{
     const attributeValues = {
       ':toStatus': toStatus,
       ':updatedAt': now,
-      ':fromStatuses': fromStatuses,
     };
+
+    const fromStatusTokens = fromStatuses.map((_, i) => `:fromStatus${i}`);
+    fromStatuses.forEach((status, i) => {
+      attributeValues[`:fromStatus${i}`] = status;
+    });
 
     let updateExpression = 'SET #status = :toStatus, #updatedAt = :updatedAt';
     Object.entries(extraAttributes).forEach(([key, value], idx) => {
@@ -81,7 +85,7 @@ export default class FilesRepository{
         tableName: this.tableName,
         key: { PK: FilesRepository.pk(userId), SK: FilesRepository.sk(fileId) },
         updateExpression,
-        conditionExpression: 'attribute_exists(PK) AND contains(:fromStatuses, #status)',
+        conditionExpression: `attribute_exists(PK) AND #status IN (${fromStatusTokens.join(', ')})`,
         expressionAttributeNames: attributeNames,
         expressionAttributeValues: attributeValues,
       });
