@@ -18,9 +18,9 @@ export default class UsersRepository{
         return `USER#${userId}`;
     }
 
-    async createUser({userId, email, passwordHash, createdAt}){
-        item = {
-            pk: UsersRepository.pk(userId),
+    async createUser({ userId, email, passwordHash, createdAt }) {
+        const item = {
+            PK: UsersRepository.pk(userId),
             SK: 'PROFILE',
             userId,
             email,
