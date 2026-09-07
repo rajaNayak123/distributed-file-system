@@ -2,14 +2,17 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import config from '../config/index.js';
 
-const baseClient = new DynamoDBClient({
+const clientConfig = {
   region: config.aws.region,
-  endpoint: config.aws.dynamoEndpoint,
   credentials: {
     accessKeyId: config.aws.accessKeyId,
     secretAccessKey: config.aws.secretAccessKey,
   },
-});
+};
+if (config.aws.dynamoEndpoint) {
+  clientConfig.endpoint = config.aws.dynamoEndpoint;
+}
+const baseClient = new DynamoDBClient(clientConfig);
 
 const documentClient = DynamoDBDocumentClient.from(baseClient, {
   marshallOptions: { removeUndefinedValues: true },
