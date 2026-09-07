@@ -5,4 +5,6 @@ const router = express.Router();
 
 router.get('/health', healthController.liveness);
 
+router.get('/ready', healthController.readiness);
+
 export default router;
