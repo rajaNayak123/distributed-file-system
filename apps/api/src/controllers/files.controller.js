@@ -1,4 +1,5 @@
 import FilesService from '../services/files.service.js';
+import { assertString } from '../utils/validators.js';
 
 const filesService = new FilesService();
 
