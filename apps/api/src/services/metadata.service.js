@@ -37,14 +37,15 @@ export default class MetadataService{
     }
   }
 
-  async updateItem(
+  async updateItem({
     tableName,
     key,
     updateExpression,
     conditionExpression,
     expressionAttributeNames,
     expressionAttributeValues,
-    returnValues = 'ALL_NEW'){
+    returnValues = 'ALL_NEW'
+  }) {
       try {
         const result = await this.docClient.send(
           new UpdateCommand({
