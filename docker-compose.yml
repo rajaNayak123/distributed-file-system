@@ -1,0 +1,205 @@
+version: '3.9'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 6 topology: 3 API replicas behind nginx + 2 worker replicas consuming
+# the SQS file-processing-queue.
+#
+# External entry point: http://localhost:3000 → nginx → api-1 / api-2 / api-3
+# Worker replicas:       worker-1, worker-2 (no port binding, queue-driven)
+#
+# SQS queues are created by the LocalStack init script on startup.
+# See infra/docker/localstack-init/01-create-resources.sh.
+# See docs/architecture.md §"Phase 6 topology" for the full diagram.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── Mock AWS dependencies ─────────────────────────────────────────────────
+  localstack:
+    image: localstack/localstack:3.5
+    container_name: dfs-localstack
+    ports:
+      - '4566:4566'
+    environment:
+      - SERVICES=s3,sqs
+      - DEFAULT_REGION=us-east-1
+      - PERSISTENCE=0
+    volumes:
+      - './infra/docker/localstack-init:/etc/localstack/init/ready.d'
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:4566/_localstack/health']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  dynamodb-local:
+    image: amazon/dynamodb-local:2.5.2
+    container_name: dfs-dynamodb-local
+    command: ['-jar', 'DynamoDBLocal.jar', '-sharedDb', '-inMemory']
+    ports:
+      - '8000:8000'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:8000/shell/ || exit 1']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  dynamodb-init:
+    build:
+      context: ./infra/docker
+      dockerfile: Dockerfile.dynamodb-init
+    container_name: dfs-dynamodb-init
+    depends_on:
+      dynamodb-local:
+        condition: service_healthy
+    environment:
+      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - DYNAMODB_FILES_TABLE=Files
+      - DYNAMODB_USERS_TABLE=Users
+    restart: 'no'
+
+  # ── API replicas ──────────────────────────────────────────────────────────
+  # All three share identical config. They are stateless: any replica can serve
+  # any request. State lives in DynamoDB (metadata) and S3 (bytes) only.
+  # No VOLUME is declared — the API never writes to disk (see Dockerfile comment).
+
+  api-1:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: dfs-api-1
+    hostname: api-1
+    environment: &api-env
+      - NODE_ENV=development
+      - PORT=3000
+      - JWT_ACCESS_SECRET=dev-access-secret-change-me
+      - JWT_REFRESH_SECRET=dev-refresh-secret-change-me
+      - AWS_REGION=us-east-1
+      - S3_ENDPOINT=http://localstack:4566
+      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
+      - SQS_ENDPOINT=http://localstack:4566
+      - SQS_QUEUE_URL=http://localstack:4566/000000000000/file-processing-queue
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - S3_FORCE_PATH_STYLE=true
+      - S3_BUCKET=file-storage-dev
+      - DYNAMODB_FILES_TABLE=Files
+      - DYNAMODB_USERS_TABLE=Users
+      - DYNAMODB_IDEMPOTENCY_TABLE=IdempotencyKeys
+    depends_on:
+      localstack:
+        condition: service_healthy
+      dynamodb-init:
+        condition: service_completed_successfully
+    # No host port binding — traffic arrives via nginx only.
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/ready || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  api-2:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: dfs-api-2
+    hostname: api-2
+    environment: *api-env
+    depends_on:
+      localstack:
+        condition: service_healthy
+      dynamodb-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/ready || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  api-3:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: dfs-api-3
+    hostname: api-3
+    environment: *api-env
+    depends_on:
+      localstack:
+        condition: service_healthy
+      dynamodb-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/ready || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ── Worker replicas ───────────────────────────────────────────────────────
+  # Two identical worker replicas consuming from the same SQS queue.
+  # This demonstrates horizontal scalability: both can process messages
+  # concurrently; SQS visibility timeout prevents double-processing.
+  # In production this would be N ECS tasks or Lambda concurrency.
+
+  worker-1:
+    build:
+      context: ./apps/worker
+      dockerfile: Dockerfile
+    container_name: dfs-worker-1
+    hostname: worker-1
+    environment: &worker-env
+      - NODE_ENV=development
+      - AWS_REGION=us-east-1
+      - S3_ENDPOINT=http://localstack:4566
+      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
+      - SQS_ENDPOINT=http://localstack:4566
+      - SQS_QUEUE_URL=http://localstack:4566/000000000000/file-processing-queue
+      - SQS_DLQ_URL=http://localstack:4566/000000000000/file-processing-dlq
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - S3_FORCE_PATH_STYLE=true
+      - S3_BUCKET=file-storage-dev
+      - DYNAMODB_FILES_TABLE=Files
+    depends_on:
+      localstack:
+        condition: service_healthy
+      dynamodb-init:
+        condition: service_completed_successfully
+
+  worker-2:
+    build:
+      context: ./apps/worker
+      dockerfile: Dockerfile
+    container_name: dfs-worker-2
+    hostname: worker-2
+    environment: *worker-env
+    depends_on:
+      localstack:
+        condition: service_healthy
+      dynamodb-init:
+        condition: service_completed_successfully
+
+  # ── Load balancer ─────────────────────────────────────────────────────────
+  # nginx round-robins across all three API replicas and fails over to the
+  # remaining healthy instances when one stops responding to /ready.
+  # In production this role is played by an AWS Application Load Balancer (ALB).
+  # See infra/docker/nginx.conf for the upstream and health-check directives.
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: dfs-nginx
+    ports:
+      - '3000:80'     # All external traffic enters here
+    volumes:
+      - './infra/docker/nginx.conf:/etc/nginx/nginx.conf:ro'
+    depends_on:
+      - api-1
+      - api-2
+      - api-3
+
+networks:
+  default:
+    name: distributed-file-storage-net
