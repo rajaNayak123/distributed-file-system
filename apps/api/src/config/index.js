@@ -45,6 +45,21 @@ const config = {
     maxFileSizeBytes: parseInt(process.env.MAX_FILE_SIZE_BYTES || `${5 * 1024 * 1024 * 1024}`, 10),
     allowedContentTypes: (process.env.ALLOWED_CONTENT_TYPES || '').trim(), // empty = allow all, comma-separated allowlist otherwise
   },
+
+  timeouts: {
+    sdkConnectMs: parseInt(process.env.SDK_CONNECT_TIMEOUT_MS || '3000', 10),
+    sdkSocketMs: parseInt(process.env.SDK_SOCKET_TIMEOUT_MS || '10000', 10),
+    requestMs: parseInt(process.env.REQUEST_TIMEOUT_MS || '60000', 10), 
+  },
+
+  retries: {
+    maxAttempts: parseInt(process.env.SDK_MAX_ATTEMPTS || '3', 10),
+  },
+
+  idempotency: {
+    ttlSeconds: parseInt(process.env.IDEMPOTENCY_TTL_SECONDS || String(24 * 60 * 60), 10), 
+    tableName: process.env.DYNAMODB_IDEMPOTENCY_TABLE || 'IdempotencyKeys',
+  },
 };
 
 export default config;
