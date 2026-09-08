@@ -39,8 +39,37 @@ export function startCleanupJob(intervalMs = 60 * 60 * 1000) {
           }
         }
       }
+
+      const stuckCompletingCutoffISO = new Date(Date.now() - 60 * 60 * 1000).toISOString(); 
+      const stuckCompleting = await filesRepository.findStuckCompleting(stuckCompletingCutoffISO);
+
+      for (const upload of stuckCompleting) {
+        try {
+          await filesRepository.updateFileStatus({
+            userId: upload.userId,
+            fileId: upload.fileId,
+            fromStatuses: ['COMPLETING'],
+            toStatus: 'FAILED',
+            extraAttributes: { failureReason: 'Upload stuck in COMPLETING for > 1 hour; marked FAILED by cleanup job' },
+          });
+          logger.warn('completing_stuck_marked_failed', {
+            userId: upload.userId,
+            fileId: upload.fileId,
+            errorCategory: 'STUCK_COMPLETING',
+          });
+        } catch (err) {
+          if (err.name !== 'ConflictError' && err.statusCode !== 409) {
+            logger.error('Failed to mark stuck COMPLETING upload as FAILED', {
+              userId: upload.userId,
+              fileId: upload.fileId,
+              error: err.message,
+            });
+          }
+        }
+      }
     } catch (err) {
       logger.error('Error in multipart upload cleanup job', { error: err.message });
     }
   }, intervalMs);
+
 }
