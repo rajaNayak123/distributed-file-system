@@ -11,7 +11,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import defaultS3Client from '../clients/s3Client.js';
 import config from '../config/index.js';
-import { UpstreamServiceError } from '../utils/errors.js';
+import { UpstreamServiceError, NotFoundError } from '../utils/errors.js';
 
 export default class StorageService{
   constructor(s3Client = defaultS3Client, bucket = config.s3.bucket){
@@ -35,12 +35,12 @@ export default class StorageService{
     }
   }
 
-  async getObject({Key}){
+  async getObject({ key }) {
     try {
       const result = await this.s3Client.send(
         new GetObjectCommand({ Bucket: this.bucket, Key: key })
-      ) 
-      return result
+      );
+      return result;
     } catch (error) {
       if (error.name === 'NoSuchKey') {
         throw new NotFoundError('Object not found in storage');
