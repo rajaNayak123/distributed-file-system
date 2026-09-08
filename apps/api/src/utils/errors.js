@@ -50,3 +50,15 @@ export class UpstreamServiceError extends AppError {
     super(message, 502, 'UPSTREAM_SERVICE_ERROR', details);
   }
 }
+
+export class IdempotencyPayloadMismatchError extends AppError {
+  constructor(message = 'Idempotency-Key reused with a different request body') {
+    super(message, 422, 'IDEMPOTENCY_PAYLOAD_MISMATCH');
+  }
+}
+
+export class IdempotencyConflictError extends AppError {
+  constructor(message = 'A request with this Idempotency-Key is already in progress') {
+    super(message, 409, 'IDEMPOTENCY_IN_PROGRESS');
+  }
+}
