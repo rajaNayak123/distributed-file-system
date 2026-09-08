@@ -1,0 +1,147 @@
+/**
+ * Integration test: FILE_UPLOADED pipeline
+ *
+ * Verifies the full pipeline:
+ *   publish FILE_UPLOADED to SQS → worker consumes it →
+ *   checksum computed from S3 object → checksum written to DynamoDB.
+ *
+ * Requires:
+ *   - LocalStack running (SQS + S3) at SQS_ENDPOINT / S3_ENDPOINT
+ *   - DynamoDB Local running at DYNAMODB_ENDPOINT
+ *   - The 'Files' table to exist (created by dynamodb-init)
+ *   - The 'file-processing-queue' SQS queue to exist (created by LocalStack init)
+ *
+ * Run: cd apps/worker && npm run test:integration
+ */
+
+import {
+  SQSClient,
+  SendMessageCommand,
+  GetQueueAttributesCommand,
+} from '@aws-sdk/client-sqs';
+import {
+  S3Client,
+  CreateBucketCommand,
+  PutObjectCommand,
+} from '@aws-sdk/client-s3';
+import {
+  DynamoDBClient,
+  CreateTableCommand,
+} from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, PutCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { createHash } from 'crypto';
+import { pollOnce } from '../../src/consumer.js';
+
+const REGION = 'us-east-1';
+const SQS_ENDPOINT = process.env.SQS_ENDPOINT || 'http://localhost:4566';
+const S3_ENDPOINT = process.env.S3_ENDPOINT || 'http://localhost:4566';
+const DYNAMO_ENDPOINT = process.env.DYNAMODB_ENDPOINT || 'http://localhost:8000';
+const QUEUE_URL = process.env.SQS_QUEUE_URL;
+const BUCKET = process.env.S3_BUCKET || 'file-storage-dev';
+const FILES_TABLE = process.env.DYNAMODB_FILES_TABLE || 'Files';
+const CREDS = { accessKeyId: 'test', secretAccessKey: 'test' };
+
+const sqsClient = new SQSClient({ region: REGION, endpoint: SQS_ENDPOINT, credentials: CREDS });
+const s3Client = new S3Client({ region: REGION, endpoint: S3_ENDPOINT, forcePathStyle: true, credentials: CREDS });
+const dynamoRaw = new DynamoDBClient({ region: REGION, endpoint: DYNAMO_ENDPOINT, credentials: CREDS });
+const dynamo = DynamoDBDocumentClient.from(dynamoRaw, { marshallOptions: { removeUndefinedValues: true } });
+
+async function ensureTable() {
+  try {
+    await dynamoRaw.send(new CreateTableCommand({
+      TableName: FILES_TABLE,
+      BillingMode: 'PAY_PER_REQUEST',
+      AttributeDefinitions: [
+        { AttributeName: 'PK', AttributeType: 'S' },
+        { AttributeName: 'SK', AttributeType: 'S' },
+      ],
+      KeySchema: [
+        { AttributeName: 'PK', KeyType: 'HASH' },
+        { AttributeName: 'SK', KeyType: 'RANGE' },
+      ],
+    }));
+  } catch (err) {
+    if (!err.message?.includes('already')) throw err;
+  }
+}
+
+async function ensureBucket() {
+  try {
+    await s3Client.send(new CreateBucketCommand({ Bucket: BUCKET }));
+  } catch (err) {
+    if (!err.message?.includes('already') && err.name !== 'BucketAlreadyOwnedByYou') throw err;
+  }
+}
+
+describe('fileUploaded pipeline — integration', () => {
+  const userId = `user-int-${Date.now()}`;
+  const fileId = `file-int-${Date.now()}`;
+  const s3Key = `users/${userId}/files/${fileId}`;
+  const fileContent = Buffer.from('integration test file content');
+
+  beforeAll(async () => {
+    await ensureTable();
+    await ensureBucket();
+
+    // Seed DynamoDB with a COMPLETED file item (simulating what the API does).
+    await dynamo.send(new PutCommand({
+      TableName: FILES_TABLE,
+      Item: {
+        PK: `USER#${userId}`,
+        SK: `FILE#${fileId}`,
+        userId,
+        fileId,
+        s3Key,
+        fileName: 'integration-test.bin',
+        contentType: 'application/octet-stream',
+        status: 'COMPLETED',
+        checksum: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    }));
+
+    // Upload the actual object to S3.
+    await s3Client.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: s3Key,
+      Body: fileContent,
+      ContentType: 'application/octet-stream',
+    }));
+  });
+
+  it('consumes FILE_UPLOADED → writes correct checksum to DynamoDB', async () => {
+    // 1. Publish the event (mirroring what uploads.service.js does).
+    await sqsClient.send(new SendMessageCommand({
+      QueueUrl: QUEUE_URL,
+      MessageBody: JSON.stringify({
+        eventType: 'FILE_UPLOADED',
+        fileId,
+        userId,
+        s3Key,
+        publishedAt: new Date().toISOString(),
+      }),
+    }));
+
+    // 2. Run one consumer poll tick (processes the message and deletes it).
+    await pollOnce({
+      sqsClient,
+      queueUrl: QUEUE_URL,
+    });
+
+    // 3. Assert checksum was written to DynamoDB.
+    const result = await dynamo.send(new GetCommand({
+      TableName: FILES_TABLE,
+      Key: { PK: `USER#${userId}`, SK: `FILE#${fileId}` },
+    }));
+
+    const item = result.Item;
+    expect(item).toBeDefined();
+    expect(item.checksum).toBeDefined();
+    expect(item.checksum).toHaveLength(64);
+
+    // Verify it's the correct SHA-256 of the content we uploaded.
+    const expected = createHash('sha256').update(fileContent).digest('hex');
+    expect(item.checksum).toBe(expected);
+  });
+});
