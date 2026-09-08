@@ -61,19 +61,42 @@ export default class UploadsService {
     }
 
     const expiresInSeconds = config.uploads.presignedPutExpirySeconds;
-    const presignedUrl = await this.storageService.getPresignedPutUrl({
-      key: s3Key,
-      contentType,
-      expiresInSeconds,
-    });
+    let presignedUrl;
+    try {
+      presignedUrl = await this.storageService.getPresignedPutUrl({
+        key: s3Key,
+        contentType,
+        expiresInSeconds,
+      });
+    } catch (err) {
+      logger.error('upload_presign_failed', {
+        userId, fileId, operation: 'initiateUpload', status: 'FAILED',
+        errorCategory: 'S3_PRESIGN_FAILED', error: err.message,
+      });
+      await this.filesRepository.updateFileStatus({
+        userId, fileId,
+        fromStatuses: [STATUS.INITIATED],
+        toStatus: STATUS.FAILED,
+        extraAttributes: { failureReason: `Failed to generate presigned URL: ${err.message}` },
+      }).catch(() => {}); 
+      throw err;
+    }
 
     assertValidTransition(STATUS.INITIATED, STATUS.UPLOADING);
-    await this.filesRepository.updateFileStatus({
-      userId,
-      fileId,
-      fromStatuses: [STATUS.INITIATED],
-      toStatus: STATUS.UPLOADING,
-    });
+    try {
+      await this.filesRepository.updateFileStatus({
+        userId,
+        fileId,
+        fromStatuses: [STATUS.INITIATED],
+        toStatus: STATUS.UPLOADING,
+      });
+    } catch (err) {
+      logger.error('upload_status_update_failed', {
+        userId, fileId, operation: 'initiateUpload', status: 'PARTIAL_FAILURE',
+        errorCategory: 'DYNAMODB_UPDATE_FAILED_AFTER_S3_PRESIGN', error: err.message,
+      });
+      throw err;
+    }
 
     const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
 
@@ -299,5 +322,47 @@ export default class UploadsService {
 
     logger.info('multipart_upload_aborted', { userId, fileId, operation: 'abortMultipartUpload', status: 'FAILED' });
     return failed;
+  }
+
+  async retryFailedUpload({ userId, fileId }) {
+    const file = await this.filesRepository.requireOwnedFile({ userId, fileId });
+
+    if (file.status !== STATUS.FAILED) {
+      throw new ValidationError(
+        `Upload ${fileId} cannot be retried from status ${file.status}. Only FAILED uploads are retryable.`
+      );
+    }
+
+    assertValidTransition(STATUS.FAILED, STATUS.UPLOADING);
+
+    const expiresInSeconds = config.uploads.presignedPutExpirySeconds;
+    let presignedUrl;
+    try {
+      presignedUrl = await this.storageService.getPresignedPutUrl({
+        key: file.s3Key,
+        contentType: file.contentType,
+        expiresInSeconds,
+      });
+    } catch (err) {
+      logger.error('upload_retry_presign_failed', {
+        userId, fileId, operation: 'retryFailedUpload',
+        errorCategory: 'S3_PRESIGN_FAILED', error: err.message,
+      });
+      throw err;
+    }
+
+    await this.filesRepository.updateFileStatus({
+      userId,
+      fileId,
+      fromStatuses: [STATUS.FAILED],
+      toStatus: STATUS.UPLOADING,
+      extraAttributes: { failureReason: null }, 
+    });
+
+    const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
+
+    logger.info('upload_retried', { userId, fileId, operation: 'retryFailedUpload', status: 'UPLOADING' });
+
+    return { fileId, presignedUrl, expiresAt };
   }
 }
