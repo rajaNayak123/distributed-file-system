@@ -1,9 +1,16 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
 import config from '../config/index.js';
+
+const requestHandler = new NodeHttpHandler({
+  connectionTimeout: config.timeouts.sdkConnectMs,
+  socketTimeout: config.timeouts.sdkSocketMs,
+});
 
 const clientConfig = {
   region: config.aws.region,
+  maxAttempts: config.retries.maxAttempts, 
   credentials: {
     accessKeyId: config.aws.accessKeyId,
     secretAccessKey: config.aws.secretAccessKey,
