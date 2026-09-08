@@ -102,3 +102,13 @@ export async function abortMultipartUpload(req, res, next) {
     next(err);
   }
 }
+
+export async function retryUpload(req, res, next) {
+  try {
+    const fileId = assertString(req.params.id, 'id', { minLength: 1, maxLength: 128 });
+    const result = await uploadsService.retryFailedUpload({ userId: req.user.userId, fileId });
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
