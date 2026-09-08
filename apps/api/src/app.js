@@ -11,6 +11,7 @@ import requestIdMiddleware from './middlewares/requestId.middleware.js';
 import requestLoggerMiddleware from './middlewares/requestLogger.middleware.js';
 import errorHandlerMiddleware from './middlewares/errorHandler.middleware.js';
 import notFoundMiddleware from './middlewares/notFound.middleware.js';
+import requestTimeoutMiddleware from './middlewares/requestTimeout.middleware.js';
 
 export default function createApp() {
   const app = express();
@@ -20,6 +21,7 @@ export default function createApp() {
   app.use(cors());
   app.use(express.json({ limit: '1mb' }));
   app.use(requestIdMiddleware);
+  app.use(requestTimeoutMiddleware); 
   app.use(requestLoggerMiddleware);
 
   app.use('/', healthRoutes);
