@@ -212,3 +212,76 @@ time, after the audit above:
   intercept.
 
 
+
+## Phase 5
+
+- **Idempotency Keys (DynamoDB backed).** The `POST /uploads` and `POST /uploads/:id/complete` endpoints create/finalize state and are not inherently idempotent. We use an `IdempotencyKeys` table with atomic conditional puts to detect duplicates. In-progress duplicates return 409 (client should back off and poll), and completed duplicates replay the original 200 response. Key reuse with a different payload hash returns 422.
+- **Explicit SDK Timeouts.** Network partitions (especially to S3) can cause the SDK to hang indefinitely, tying up Express workers. We've explicitly set `connectionTimeout` (3s) and `socketTimeout` (min 30s for S3 HeadObject/presigning) using the Smithy `NodeHttpHandler`. We also added a global Express request timeout (60s).
+- **SDK built-in retry strategy.** Rather than hand-rolling a retry loop for DynamoDB/S3, we configure the SDK's `maxAttempts` (default 3) which uses the built-in `StandardRetryStrategy` (exponential backoff + jitter). The SDK handles transient errors automatically.
+- **Validation errors bypass retries.** Deterministic 4xx errors and validation failures (e.g. file too large) are never retried because they are thrown directly as `AppError` subclasses before reaching the SDK layer.
+- **FAILED → UPLOADING transition.** If an upload fails mid-flight, `POST /files/:id/retry` transitions it back to UPLOADING and re-issues a presigned URL using the *same* S3 key and DynamoDB record. This avoids leaving ghost records in the database.
+
+## Phase 6
+
+- **Explicit SQS publish from the API instead of S3 Event Notifications.** In
+  production, configuring `s3:ObjectCreated:*` to push directly to SQS is the
+  more elegant approach — it removes the API from the notification path entirely.
+  For local dev, however, S3 Event Notifications in LocalStack require additional
+  bucket-notification configuration that is fiddly to get right and makes
+  integration tests non-deterministic (the event fires at an unknown time relative
+  to the test assertion). Explicit publish from `uploads.service.js` after
+  `status → COMPLETED` keeps the signal path synchronous and testable. The
+  publish is fire-and-forget: if SQS is unavailable, the upload is still durably
+  COMPLETED in DynamoDB; the worker picks it up on a retry or the Phase 7
+  reconciliation job catches files with `checksum: null`. This is documented as a
+  known trade-off, not a mistake.
+
+- **Visibility timeout = 300 seconds (5 minutes).** SHA-256 computation on a
+  5 GB file streamed through the Node `crypto` module takes at most 2–3 minutes
+  on constrained hardware; 5 minutes gives 2× headroom. The S3 socket timeout on
+  the worker client is set to at least 5 minutes to match. Using a value shorter
+  than the expected maximum processing time would cause SQS to re-deliver
+  messages that are still being processed, resulting in duplicate work — the
+  idempotency guards in `checksum.processor.js` make duplicates safe but
+  wasteful.
+
+- **maxReceiveCount = 5 before DLQ.** Five attempts gives the worker three
+  genuine retries beyond the first attempt, while keeping the retry window
+  bounded. At 5 minutes per visibility cycle, a message can spend up to 25
+  minutes in transit before landing in the DLQ — far more than enough to recover
+  from transient S3/DynamoDB errors. A lower value (e.g. 3) risks pushing
+  recoverable transient failures into the DLQ; a higher value (e.g. 10) delays
+  operator awareness of genuinely broken messages.
+
+- **Worker is a standalone `apps/worker/` application, not a sub-module of
+  `apps/api/`.** Separating them means: (a) the API Docker image stays lean —
+  no worker runtime, no `node-cron`, no streaming S3 I/O; (b) worker and API can
+  scale independently (e.g. one worker replica per 10 API replicas); (c) a worker
+  crash cannot affect the API's ability to serve upload/download requests.
+
+- **Cleanup cron moved from the API to the worker.** `apps/api/src/cron/cleanup.js`
+  started a `setInterval` in `server.js`, meaning three cron jobs were running
+  simultaneously across `api-1`, `api-2`, and `api-3`. While the DynamoDB
+  conditional expressions made concurrent cleanup safe, it was unnecessary load
+  and violated the principle that the API should be a pure request/response
+  process. Moving cleanup to the worker makes the API fully stateless: it starts
+  no background work, holds no timers, and can be replaced at any time without
+  disrupting in-progress cleanup cycles.
+
+- **DLQ inspection via CLI script, not an HTTP endpoint.** Adding an admin HTTP
+  endpoint to the worker would require an HTTP server, authentication, and
+  deployment of a network-accessible port — significant complexity for an
+  occasional operational need. A CLI script (`scripts/inspect-dlq.js`) run
+  directly against LocalStack or real AWS (with appropriate credentials) is
+  simpler, safer (no credentials in HTTP headers), and consistent with how AWS
+  operators typically inspect SQS queues.
+
+- **`updateChecksum` uses `attribute_exists(PK)` conditional write.** This makes
+  checksum computation idempotent: if two worker replicas both receive the same
+  message (e.g. after a visibility timeout race), the second write is identical
+  (same SHA-256 of the same bytes) and the conditional expression succeeds. If
+  the item was deleted between message publish and consume, the write fails with
+  `ConditionalCheckFailedException` which is not retried (the processor returns
+  `{skipped: true}`). Without this guard, a concurrent second write would succeed
+  but would silently overwrite a valid checksum with an identical value — harmless,
+  but wasteful of a DynamoDB write unit.
