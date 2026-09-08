@@ -35,7 +35,7 @@ export default class UsersRepository{
                 conditionExpression: 'attribute_not_exists(PK)',
             })
             return item;
-        } catch (error) {
+        } catch (err) {
             if (err.name === 'ConditionalCheckFailedException') {
                 throw new ConflictError('A user with this email already exists');
             }
