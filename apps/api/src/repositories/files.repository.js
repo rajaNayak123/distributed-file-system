@@ -1,6 +1,6 @@
 import MetadataService from "../services/metadata.service.js"
 import config from '../config/index.js';
-import { ConflictError } from '../utils/errors.js';
+import { ConflictError, NotFoundError } from '../utils/errors.js';
 
 export default class FilesRepository{
   constructor(metadataService = new MetadataService(), tableName = config.dynamo.filesTable){
