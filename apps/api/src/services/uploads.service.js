@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import FilesRepository from '../repositories/files.repository.js';
 import StorageService from './storage.service.js';
+import QueueService from './queue.service.js';
 import config from '../config/index.js';
 import { STATUS, assertValidTransition } from '../utils/uploadStateMachine.js';
 import { ValidationError, NotFoundError, AuthorizationError } from '../utils/errors.js';
@@ -13,10 +14,12 @@ function deriveS3Key(userId, fileId) {
 export default class UploadsService {
   constructor(
     filesRepository = new FilesRepository(),
-    storageService = new StorageService()
+    storageService = new StorageService(),
+    queueService = new QueueService()
   ) {
     this.filesRepository = filesRepository;
     this.storageService = storageService;
+    this.queueService = queueService;
   }
 
 
@@ -166,6 +169,12 @@ export default class UploadsService {
     });
 
     logger.info('upload_completed', { userId, fileId, operation: 'completeUpload', status: 'COMPLETED' });
+
+    // Fire-and-forget: publish to SQS so the worker can compute the checksum.
+    // The upload is already durably COMPLETED above; a publish failure is logged
+    // by QueueService but must not fail this response. See queue.service.js.
+    this.queueService.publishFileUploaded({ fileId, userId, s3Key: file.s3Key });
+
     return completed;
   }
 
@@ -295,6 +304,10 @@ export default class UploadsService {
     });
 
     logger.info('multipart_upload_completed', { userId, fileId, operation: 'completeMultipartUpload', status: 'COMPLETED' });
+
+    // Fire-and-forget: publish to SQS so the worker can compute the checksum.
+    this.queueService.publishFileUploaded({ fileId, userId, s3Key: file.s3Key });
+
     return completed;
   }
 
