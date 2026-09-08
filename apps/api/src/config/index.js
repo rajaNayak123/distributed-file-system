@@ -25,6 +25,7 @@ const config = {
     region: process.env.AWS_REGION || 'us-east-1',
     s3Endpoint: process.env.S3_ENDPOINT ? process.env.S3_ENDPOINT : undefined,
     dynamoEndpoint: process.env.DYNAMODB_ENDPOINT ? process.env.DYNAMODB_ENDPOINT : undefined,
+    sqsEndpoint: process.env.SQS_ENDPOINT ? process.env.SQS_ENDPOINT : undefined,
     accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'test',
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'test',
     forcePathStyle: (process.env.S3_FORCE_PATH_STYLE || 'true') === 'true',
@@ -59,6 +60,13 @@ const config = {
   idempotency: {
     ttlSeconds: parseInt(process.env.IDEMPOTENCY_TTL_SECONDS || String(24 * 60 * 60), 10), 
     tableName: process.env.DYNAMODB_IDEMPOTENCY_TABLE || 'IdempotencyKeys',
+  },
+
+  sqs: {
+    // URL of the main file-processing queue. If unset (e.g. in unit tests
+    // that don't touch SQS), publish calls will fail loudly so misconfiguration
+    // is caught early rather than silently dropped.
+    queueUrl: process.env.SQS_QUEUE_URL || '',
   },
 };
 
