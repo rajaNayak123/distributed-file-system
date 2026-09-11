@@ -348,6 +348,78 @@ export default class UploadsService {
 
     assertValidTransition(STATUS.FAILED, STATUS.UPLOADING);
 
+    const multipartThreshold = config.uploads.multipartThresholdBytes || 50 * 1024 * 1024;
+    const isMultipart =
+      file.uploadType === 'multipart' ||
+      Boolean(file.s3UploadId) ||
+      (file.size && file.size > multipartThreshold);
+
+    if (isMultipart) {
+      // 1. Best-effort abort of any previous multipart upload session in S3
+      if (file.s3UploadId) {
+        try {
+          await this.storageService.abortMultipartUpload({
+            key: file.s3Key,
+            uploadId: file.s3UploadId,
+          });
+        } catch (abortErr) {
+          logger.warn('retry_abort_old_multipart_failed', {
+            userId,
+            fileId,
+            oldUploadId: file.s3UploadId,
+            error: abortErr.message,
+          });
+        }
+      }
+
+      // 2. Restart multipart upload session in S3
+      let newUploadId;
+      try {
+        const multipartRes = await this.storageService.createMultipartUpload({
+          key: file.s3Key,
+          contentType: file.contentType,
+        });
+        newUploadId = multipartRes.uploadId;
+      } catch (err) {
+        logger.error('upload_retry_multipart_create_failed', {
+          userId,
+          fileId,
+          operation: 'retryFailedUpload',
+          errorCategory: 'S3_MULTIPART_CREATE_FAILED',
+          error: err.message,
+        });
+        throw err;
+      }
+
+      // 3. Update DynamoDB metadata to UPLOADING with the new uploadId without duplicate records
+      await this.filesRepository.updateFileStatus({
+        userId,
+        fileId,
+        fromStatuses: [STATUS.FAILED],
+        toStatus: STATUS.UPLOADING,
+        extraAttributes: {
+          s3UploadId: newUploadId,
+          uploadType: 'multipart',
+          failureReason: null,
+        },
+      });
+
+      logger.info('upload_retried_multipart', {
+        userId,
+        fileId,
+        operation: 'retryFailedUpload',
+        status: 'UPLOADING',
+        s3UploadId: newUploadId,
+      });
+
+      return {
+        fileId,
+        uploadType: 'multipart',
+        s3UploadId: newUploadId,
+      };
+    }
+
+    // Single-part presigned PUT retry
     const expiresInSeconds = config.uploads.presignedPutExpirySeconds;
     let presignedUrl;
     try {
@@ -358,8 +430,11 @@ export default class UploadsService {
       });
     } catch (err) {
       logger.error('upload_retry_presign_failed', {
-        userId, fileId, operation: 'retryFailedUpload',
-        errorCategory: 'S3_PRESIGN_FAILED', error: err.message,
+        userId,
+        fileId,
+        operation: 'retryFailedUpload',
+        errorCategory: 'S3_PRESIGN_FAILED',
+        error: err.message,
       });
       throw err;
     }
@@ -369,13 +444,18 @@ export default class UploadsService {
       fileId,
       fromStatuses: [STATUS.FAILED],
       toStatus: STATUS.UPLOADING,
-      extraAttributes: { failureReason: null }, 
+      extraAttributes: { failureReason: null },
     });
 
     const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
 
-    logger.info('upload_retried', { userId, fileId, operation: 'retryFailedUpload', status: 'UPLOADING' });
+    logger.info('upload_retried', {
+      userId,
+      fileId,
+      operation: 'retryFailedUpload',
+      status: 'UPLOADING',
+    });
 
-    return { fileId, presignedUrl, expiresAt };
+    return { fileId, uploadType: 'single', presignedUrl, expiresAt };
   }
 }
