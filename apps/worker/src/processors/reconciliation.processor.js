@@ -196,20 +196,41 @@ export async function runReconciliation({
 
         if (!parsed) {
           // Unrecognized key format older than grace period
-          isOrphan = true;
-          orphanReason = 'invalid_key_pattern';
+          const hasActiveRefs = typeof filesRepository.hasActiveReferencesToS3Key === 'function'
+            ? await filesRepository.hasActiveReferencesToS3Key(s3Obj.Key)
+            : false;
+          if (hasActiveRefs) {
+            isOrphan = false;
+          } else {
+            isOrphan = true;
+            orphanReason = 'invalid_key_pattern';
+          }
         } else {
           const fileRecord = await filesRepository.getFile({
             userId: parsed.userId,
             fileId: parsed.fileId,
           });
 
-          if (!fileRecord) {
-            isOrphan = true;
-            orphanReason = 'dynamodb_record_missing';
-          } else if (fileRecord.status === 'FAILED') {
-            isOrphan = true;
-            orphanReason = 'dynamodb_record_failed';
+          if (!fileRecord || fileRecord.status === 'FAILED') {
+            // The primary file record is missing or failed.
+            // Before treating this S3 object as an orphan, check if any other active
+            // (COMPLETED) records in DynamoDB reference this s3Key (e.g. via deduplication).
+            const hasActiveRefs = typeof filesRepository.hasActiveReferencesToS3Key === 'function'
+              ? await filesRepository.hasActiveReferencesToS3Key(s3Obj.Key)
+              : false;
+
+            if (hasActiveRefs) {
+              isOrphan = false;
+              logger.info(JSON.stringify({
+                level: 'info',
+                event: 'reconciliation_case_b_dedup_reference_retained',
+                s3Key: s3Obj.Key,
+                originalStatus: fileRecord ? fileRecord.status : 'MISSING',
+              }));
+            } else {
+              isOrphan = true;
+              orphanReason = !fileRecord ? 'dynamodb_record_missing' : 'dynamodb_record_failed';
+            }
           }
         }
 
