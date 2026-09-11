@@ -49,18 +49,94 @@ export default class FilesService {
       return { deleted: true, alreadyDeleted: true };
     }
 
-    try {
-      await this.storageService.deleteObject({ key: existing.s3Key });
-    } catch (err) {
-      logger.error('delete_s3_failed', {
-        userId,
-        fileId,
-        operation: 'deleteFile',
-        status: 'FAILED',
-        errorCategory: 'S3_DELETE_FAILED',
-        error: err.message,
-      });
-      throw err;
+    let shouldDeleteS3 = true;
+
+    if (existing.isDedup) {
+      // Case 1: Deduplicated alias referencing a canonical object.
+      let canonicalExists = false;
+      if (existing.canonicalUserId && existing.canonicalFileId) {
+        try {
+          const canonical = await this.filesRepository.getFile({
+            userId: existing.canonicalUserId,
+            fileId: existing.canonicalFileId,
+          });
+          if (canonical) {
+            canonicalExists = true;
+            await this.filesRepository.decrementRefCount({
+              userId: existing.canonicalUserId,
+              fileId: existing.canonicalFileId,
+            });
+          }
+        } catch (err) {
+          logger.warn('dedup_decrement_canonical_failed', {
+            userId: existing.canonicalUserId,
+            fileId: existing.canonicalFileId,
+            error: err.message,
+          });
+        }
+      }
+
+      if (canonicalExists) {
+        // Canonical file still exists, preserve S3 object
+        shouldDeleteS3 = false;
+      } else {
+        // Canonical file was already deleted; check if other aliases still reference this content
+        const hash = existing.contentHash || existing.checksum;
+        if (hash && typeof this.filesRepository.findByContentHash === 'function') {
+          try {
+            const matches = await this.filesRepository.findByContentHash(hash);
+            const activeOthers = (matches || []).filter(
+              (m) => !(m.userId === userId && m.fileId === fileId)
+            );
+            shouldDeleteS3 = activeOthers.length === 0;
+          } catch (err) {
+            shouldDeleteS3 = false;
+          }
+        } else {
+          shouldDeleteS3 = false;
+        }
+      }
+    } else if (existing.refCount && existing.refCount > 1) {
+      // Case 2: Canonical object with active references.
+      // S3 object must be preserved because other files still point to it.
+      shouldDeleteS3 = false;
+      try {
+        await this.filesRepository.decrementRefCount({ userId, fileId });
+      } catch (err) {
+        logger.warn('dedup_decrement_refcount_failed', { userId, fileId, error: err.message });
+      }
+    } else {
+      // Case 3: Check if any other records share contentHash
+      const hash = existing.contentHash || existing.checksum;
+      if (hash && typeof this.filesRepository.findByContentHash === 'function') {
+        try {
+          const matches = await this.filesRepository.findByContentHash(hash);
+          const activeOthers = (matches || []).filter(
+            (m) => !(m.userId === userId && m.fileId === fileId)
+          );
+          if (activeOthers.length > 0) {
+            shouldDeleteS3 = false;
+          }
+        } catch (err) {
+          // ignore lookup error and proceed
+        }
+      }
+    }
+
+    if (shouldDeleteS3) {
+      try {
+        await this.storageService.deleteObject({ key: existing.s3Key });
+      } catch (err) {
+        logger.error('delete_s3_failed', {
+          userId,
+          fileId,
+          operation: 'deleteFile',
+          status: 'FAILED',
+          errorCategory: 'S3_DELETE_FAILED',
+          error: err.message,
+        });
+        throw err;
+      }
     }
 
     try {
@@ -77,7 +153,13 @@ export default class FilesService {
       throw err;
     }
 
-    logger.info('file_deleted', { userId, fileId, operation: 'deleteFile', status: 'OK' });
-    return { deleted: true, alreadyDeleted: false };
+    logger.info('file_deleted', {
+      userId,
+      fileId,
+      operation: 'deleteFile',
+      status: 'OK',
+      s3Deleted: shouldDeleteS3,
+    });
+    return { deleted: true, alreadyDeleted: false, s3Deleted: shouldDeleteS3 };
   }
 }
