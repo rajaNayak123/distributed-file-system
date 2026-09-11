@@ -205,6 +205,65 @@ describe('reconciliation.processor — unit', () => {
       expect(deletedKeys).not.toContain('users/u3/files/valid-file');
       expect(deletedKeys).not.toContain('users/u4/files/recent-file');
     });
+
+    it('preserves S3 object when canonical DynamoDB record is missing or failed but other active dedup records reference it', async () => {
+      const filesRepository = {
+        findSuspiciousUploads: jest.fn().mockResolvedValue([]),
+        getFile: jest.fn().mockImplementation(({ fileId }) => {
+          if (fileId === 'deleted-canonical-file') return Promise.resolve(null);
+          if (fileId === 'failed-canonical-file') {
+            return Promise.resolve({
+              userId: 'u1',
+              fileId: 'failed-canonical-file',
+              status: 'FAILED',
+            });
+          }
+          return Promise.resolve(null);
+        }),
+        hasActiveReferencesToS3Key: jest.fn().mockImplementation((key) => {
+          if (key === 'users/u1/files/deleted-canonical-file') return Promise.resolve(true);
+          if (key === 'users/u1/files/failed-canonical-file') return Promise.resolve(true);
+          return Promise.resolve(false);
+        }),
+      };
+
+      const oldDate = new Date(Date.now() - 2 * 60 * 60 * 1000); // 2 hours ago
+      const s3Objects = [
+        { Key: 'users/u1/files/deleted-canonical-file', LastModified: oldDate },
+        { Key: 'users/u1/files/failed-canonical-file', LastModified: oldDate },
+      ];
+
+      const deletedKeys = [];
+      const s3Client = {
+        send: jest.fn().mockImplementation((command) => {
+          const name = command.constructor?.name || '';
+          if (name.includes('ListObjectsV2')) {
+            return Promise.resolve({ Contents: s3Objects });
+          }
+          if (name.includes('DeleteObject')) {
+            deletedKeys.push(command.input.Key);
+            return Promise.resolve({});
+          }
+          return Promise.resolve({});
+        }),
+      };
+
+      const result = await runReconciliation({
+        filesRepository,
+        s3Client,
+        logger: silentLogger,
+      });
+
+      expect(result.caseBScanned).toBe(2);
+      expect(result.caseBOrphansDeleted).toBe(0);
+      expect(deletedKeys).toHaveLength(0);
+      expect(filesRepository.hasActiveReferencesToS3Key).toHaveBeenCalledWith(
+        'users/u1/files/deleted-canonical-file'
+      );
+      expect(filesRepository.hasActiveReferencesToS3Key).toHaveBeenCalledWith(
+        'users/u1/files/failed-canonical-file'
+      );
+    });
   });
 
   describe('processReconciliation (on-demand)', () => {
