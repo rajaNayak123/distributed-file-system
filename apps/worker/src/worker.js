@@ -1,16 +1,19 @@
 import cron from 'node-cron';
 import { startConsumer } from './consumer.js';
 import { runCleanup } from './processors/cleanup.processor.js';
+import { runReconciliation } from './processors/reconciliation.processor.js';
 import config from './config/index.js';
 
 /**
  * Worker entrypoint.
  *
- * Starts two concurrent workloads:
- *   1. SQS consumer — long-polls for FILE_UPLOADED messages, dispatches to
- *      checksum + metadata processors.
+ * Starts concurrent workloads:
+ *   1. SQS consumer — long-polls for messages, dispatches to
+ *      checksum + metadata + reconciliation processors.
  *   2. Cleanup cron — runs on a schedule (default: hourly) to abort abandoned
  *      multipart uploads and mark stuck COMPLETING records as FAILED.
+ *   3. Reconciliation cron — runs on a schedule (default: every 15 mins) to
+ *      detect and resolve S3/DynamoDB consistency gaps and orphaned S3 objects.
  *
  * Graceful shutdown:
  *   SIGTERM/SIGINT → stop accepting new work, let in-flight processing finish,
@@ -24,6 +27,7 @@ console.log(JSON.stringify({
   event: 'worker_started',
   hostname: process.env.HOSTNAME || 'unknown',
   cleanupSchedule: config.cleanup.cronSchedule,
+  reconciliationSchedule: config.reconciliation.cronSchedule,
 }));
 
 cron.schedule(config.cleanup.cronSchedule, async () => {
@@ -39,6 +43,25 @@ cron.schedule(config.cleanup.cronSchedule, async () => {
     console.error(JSON.stringify({
       level: 'error',
       event: 'cleanup_job_error',
+      error: err.message,
+    }));
+  }
+});
+
+// ── Reconciliation cron ──────────────────────────────────────────────────────
+cron.schedule(config.reconciliation.cronSchedule, async () => {
+  console.log(JSON.stringify({ level: 'info', event: 'reconciliation_job_start' }));
+  try {
+    const result = await runReconciliation();
+    console.log(JSON.stringify({
+      level: 'info',
+      event: 'reconciliation_job_complete',
+      ...result,
+    }));
+  } catch (err) {
+    console.error(JSON.stringify({
+      level: 'error',
+      event: 'reconciliation_job_error',
       error: err.message,
     }));
   }
