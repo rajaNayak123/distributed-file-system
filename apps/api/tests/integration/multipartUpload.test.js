@@ -117,4 +117,64 @@ describe('Multipart upload flow (Phase 3)', () => {
     expect(completeRes.body.status).toBe('FAILED');
     expect(completeRes.body.failureReason).toMatch(/not found/i);
   });
+
+  it('allows retrying a FAILED multipart upload, restarting multipart upload without duplicate records', async () => {
+    // 1. Create multipart upload (> 50MB)
+    const initiateRes = await request(app)
+      .post('/uploads')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ fileName: 'large-video.mp4', contentType: 'video/mp4', size: 60 * 1024 * 1024 });
+    const { fileId } = initiateRes.body;
+
+    await request(app)
+      .post(`/uploads/${fileId}/multipart/initiate`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send();
+
+    // 2. Abort upload so it ends in FAILED
+    const abortRes = await request(app)
+      .post(`/uploads/${fileId}/multipart/abort`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send();
+    expect(abortRes.body.status).toBe('FAILED');
+
+    // 3. Retry the failed upload via POST /files/:id/retry
+    const retryRes = await request(app)
+      .post(`/files/${fileId}/retry`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send();
+
+    expect(retryRes.status).toBe(200);
+    expect(retryRes.body.fileId).toBe(fileId);
+    expect(retryRes.body.uploadType).toBe('multipart');
+    expect(retryRes.body.s3UploadId).toBeDefined();
+
+    // 4. Request parts using the restarted session
+    const partsRes = await request(app)
+      .post(`/uploads/${fileId}/multipart/parts`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ partNumbers: [1] });
+    expect(partsRes.status).toBe(200);
+
+    // 5. Complete restarted upload
+    const listRes = await request(app)
+      .get('/files?includeIncomplete=true')
+      .set('Authorization', `Bearer ${accessToken}`);
+    const file = listRes.body.files.find((f) => f.fileId === fileId);
+    FakeStorageService.__simulateClientPut(file.s3Key, { size: 60 * 1024 * 1024, contentType: 'video/mp4' });
+
+    const completeRes = await request(app)
+      .post(`/uploads/${fileId}/multipart/complete`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ parts: [{ partNumber: 1, eTag: '"etag-1"' }] });
+
+    expect(completeRes.status).toBe(200);
+    expect(completeRes.body.status).toBe('COMPLETED');
+
+    // 6. Verify still only one file record exists
+    const finalFiles = await request(app)
+      .get('/files')
+      .set('Authorization', `Bearer ${accessToken}`);
+    expect(finalFiles.body.files.filter((f) => f.fileId === fileId)).toHaveLength(1);
+  });
 });
