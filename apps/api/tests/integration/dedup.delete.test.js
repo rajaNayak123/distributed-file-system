@@ -106,5 +106,9 @@ describe('Deduplication-aware file deletion integration', () => {
       .delete('/files/file-dedup-alias')
       .set('Authorization', `Bearer ${user2.accessToken}`);
     expect(res2.status).toBe(200);
+    expect(res2.body.deleted).toBe(true);
+
+    // S3 object must NOW be deleted since this was the last remaining reference
+    expect(FakeStorageService.__objectExists(sharedS3Key)).toBe(false);
   });
 });
