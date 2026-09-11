@@ -1,0 +1,45 @@
+{
+  "name": "distributed-file-storage-api",
+  "version": "0.2.0",
+  "description": "Stateless API tier for the distributed file storage backend (Phase 2: presigned uploads, state machine, authorized downloads, idempotent delete)",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "jest --runInBand",
+    "test:unit": "jest --runInBand --selectProjects unit",
+    "test:integration": "jest --runInBand --selectProjects integration",
+    "lint": "eslint src tests --ext .js",
+    "format": "prettier --write \"src/**/*.js\" \"tests/**/*.js\""
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.629.0",
+    "@aws-sdk/client-s3": "^3.629.0",
+    "@aws-sdk/client-sqs": "^3.1127.0",
+    "@aws-sdk/lib-dynamodb": "^3.629.0",
+    "@aws-sdk/s3-request-presigner": "^3.629.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "ioredis": "^6.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@babel/preset-env": "^7.25.4",
+    "aws-sdk-client-mock": "^4.0.1",
+    "babel-jest": "^29.7.0",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.1.4",
+    "prettier": "^3.3.3",
+    "supertest": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
