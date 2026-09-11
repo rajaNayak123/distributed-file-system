@@ -68,6 +68,12 @@ const config = {
     // is caught early rather than silently dropped.
     queueUrl: process.env.SQS_QUEUE_URL || '',
   },
+
+  rateLimit: {
+    redisUrl: process.env.REDIS_URL || undefined,
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10), // 1 minute
+    maxRequests: parseInt(process.env.RATE_LIMIT_MAX || '30', 10), // 30 requests per minute
+  },
 };
 
 export default config;
