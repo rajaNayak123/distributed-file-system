@@ -59,6 +59,17 @@ const config = {
     // Uploads stuck in COMPLETING for longer than this are marked FAILED.
     stuckCompletingHours: parseInt(process.env.CLEANUP_STUCK_COMPLETING_HOURS || '1', 10),
   },
+
+  reconciliation: {
+    // Cron expression for the reconciliation job (default: every 15 minutes).
+    cronSchedule: process.env.RECONCILIATION_CRON_SCHEDULE || '*/15 * * * *',
+    // Uploads stuck in UPLOADING or COMPLETING for longer than this are suspicious.
+    stuckThresholdMinutes: parseInt(process.env.RECONCILIATION_STUCK_MINUTES || '30', 10),
+    // COMPLETED files with missing checksum older than this are suspicious.
+    unverifiedThresholdMinutes: parseInt(process.env.RECONCILIATION_UNVERIFIED_MINUTES || '15', 10),
+    // Grace period for S3 objects before considering them orphaned (avoid race with ongoing uploads).
+    orphanGracePeriodMinutes: parseInt(process.env.RECONCILIATION_ORPHAN_GRACE_MINUTES || '60', 10),
+  },
 };
 
 export default config;
