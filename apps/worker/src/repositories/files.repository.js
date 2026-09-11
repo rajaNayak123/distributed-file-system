@@ -317,5 +317,41 @@ export default class FilesRepository {
       })
     );
   }
+
+  /**
+   * Checks if any active (COMPLETED) file record in DynamoDB references the given s3Key.
+   * This is critical for deduplication: if the canonical uploader deletes their file,
+   * other deduplicated files may still point to the canonical S3 object.
+   *
+   * @param {string} s3Key
+   * @returns {Promise<boolean>} true if at least one active file references this S3 object
+   */
+  async hasActiveReferencesToS3Key(s3Key) {
+    let exclusiveStartKey = undefined;
+    do {
+      const result = await this.docClient.send(
+        new ScanCommand({
+          TableName: this.tableName,
+          FilterExpression: '#s3Key = :s3Key AND #status = :completed',
+          ExpressionAttributeNames: {
+            '#s3Key': 's3Key',
+            '#status': 'status',
+          },
+          ExpressionAttributeValues: {
+            ':s3Key': s3Key,
+            ':completed': 'COMPLETED',
+          },
+          ExclusiveStartKey: exclusiveStartKey,
+        })
+      );
+
+      if (result.Items && result.Items.length > 0) {
+        return true;
+      }
+      exclusiveStartKey = result.LastEvaluatedKey;
+    } while (exclusiveStartKey);
+
+    return false;
+  }
 }
 
