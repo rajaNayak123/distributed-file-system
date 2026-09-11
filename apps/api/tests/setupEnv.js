@@ -1,0 +1,10 @@
+process.env.NODE_ENV = 'test';
+process.env.JWT_ACCESS_SECRET = 'test-access-secret';
+process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
+process.env.JWT_ACCESS_EXPIRES_IN = '15m';
+process.env.JWT_REFRESH_EXPIRES_IN = '7d';
+process.env.S3_BUCKET = 'test-bucket';
+process.env.DYNAMODB_FILES_TABLE = 'Files-test';
+process.env.DYNAMODB_USERS_TABLE = 'Users-test';
+process.env.PRESIGNED_PUT_EXPIRY_SECONDS = '900';
+process.env.PRESIGNED_GET_EXPIRY_SECONDS = '300';
