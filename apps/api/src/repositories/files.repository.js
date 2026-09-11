@@ -147,4 +147,55 @@ export default class FilesRepository{
     });
     return items;
   }
+
+  async findByContentHash(contentHash) {
+    const items = await this.metadataService.query({
+      tableName: this.tableName,
+      indexName: 'ContentHashIndex',
+      keyConditionExpression: '#contentHash = :hash',
+      expressionAttributeNames: {
+        '#contentHash': 'contentHash',
+      },
+      expressionAttributeValues: {
+        ':hash': contentHash,
+      },
+    });
+    return items;
+  }
+
+  async incrementRefCount({ userId, fileId }) {
+    return this.metadataService.updateItem({
+      tableName: this.tableName,
+      key: { PK: FilesRepository.pk(userId), SK: FilesRepository.sk(fileId) },
+      updateExpression: 'SET #refCount = if_not_exists(#refCount, :zero) + :one, #updatedAt = :now',
+      conditionExpression: 'attribute_exists(PK)',
+      expressionAttributeNames: {
+        '#refCount': 'refCount',
+        '#updatedAt': 'updatedAt',
+      },
+      expressionAttributeValues: {
+        ':zero': 0,
+        ':one': 1,
+        ':now': new Date().toISOString(),
+      },
+    });
+  }
+
+  async decrementRefCount({ userId, fileId }) {
+    return this.metadataService.updateItem({
+      tableName: this.tableName,
+      key: { PK: FilesRepository.pk(userId), SK: FilesRepository.sk(fileId) },
+      updateExpression: 'SET #refCount = #refCount - :one, #updatedAt = :now',
+      conditionExpression: 'attribute_exists(PK) AND #refCount > :zero',
+      expressionAttributeNames: {
+        '#refCount': 'refCount',
+        '#updatedAt': 'updatedAt',
+      },
+      expressionAttributeValues: {
+        ':zero': 0,
+        ':one': 1,
+        ':now': new Date().toISOString(),
+      },
+    });
+  }
 }
