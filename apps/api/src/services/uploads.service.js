@@ -4,7 +4,7 @@ import StorageService from './storage.service.js';
 import QueueService from './queue.service.js';
 import config from '../config/index.js';
 import { STATUS, assertValidTransition } from '../utils/uploadStateMachine.js';
-import { ValidationError, NotFoundError, AuthorizationError } from '../utils/errors.js';
+import { ValidationError } from '../utils/errors.js';
 import logger from '../utils/logger.js';
 
 function deriveS3Key(userId, fileId) {
@@ -170,23 +170,9 @@ export default class UploadsService {
 
     logger.info('upload_completed', { userId, fileId, operation: 'completeUpload', status: 'COMPLETED' });
 
-    // Fire-and-forget: publish to SQS so the worker can compute the checksum.
-    // The upload is already durably COMPLETED above; a publish failure is logged
-    // by QueueService but must not fail this response. See queue.service.js.
     this.queueService.publishFileUploaded({ fileId, userId, s3Key: file.s3Key });
 
     return completed;
-  }
-
-  async requireOwnedFileForDownload({ userId, fileId }) {
-    const file = await this.filesRepository.requireOwnedFile({ userId, fileId });
-    if (file.userId !== userId) {
-      throw new AuthorizationError('Not authorized to access this file');
-    }
-    if (!file.s3Key) {
-      throw new NotFoundError('File has no associated storage object');
-    }
-    return file;
   }
 
   async initiateMultipartUpload({ userId, fileId }) {
@@ -305,7 +291,6 @@ export default class UploadsService {
 
     logger.info('multipart_upload_completed', { userId, fileId, operation: 'completeMultipartUpload', status: 'COMPLETED' });
 
-    // Fire-and-forget: publish to SQS so the worker can compute the checksum.
     this.queueService.publishFileUploaded({ fileId, userId, s3Key: file.s3Key });
 
     return completed;
@@ -355,7 +340,6 @@ export default class UploadsService {
       (file.size && file.size > multipartThreshold);
 
     if (isMultipart) {
-      // 1. Best-effort abort of any previous multipart upload session in S3
       if (file.s3UploadId) {
         try {
           await this.storageService.abortMultipartUpload({
@@ -372,7 +356,6 @@ export default class UploadsService {
         }
       }
 
-      // 2. Restart multipart upload session in S3
       let newUploadId;
       try {
         const multipartRes = await this.storageService.createMultipartUpload({
@@ -391,7 +374,6 @@ export default class UploadsService {
         throw err;
       }
 
-      // 3. Update DynamoDB metadata to UPLOADING with the new uploadId without duplicate records
       await this.filesRepository.updateFileStatus({
         userId,
         fileId,
@@ -419,7 +401,6 @@ export default class UploadsService {
       };
     }
 
-    // Single-part presigned PUT retry
     const expiresInSeconds = config.uploads.presignedPutExpirySeconds;
     let presignedUrl;
     try {
