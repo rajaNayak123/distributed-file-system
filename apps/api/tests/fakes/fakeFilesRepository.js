@@ -1,8 +1,5 @@
 import { ConflictError, NotFoundError } from '../../src/utils/errors.js';
 
-// Shared, module-level store so every `new FakeFilesRepository()` instance
-// (one is constructed per real service class that depends on it) sees the
-// same data - mirroring a real shared DynamoDB table.
 let store = new Map();
 
 function key(userId, fileId) {
