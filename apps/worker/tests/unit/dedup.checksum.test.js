@@ -35,7 +35,7 @@ describe('dedup.checksum — unit', () => {
 
     const filesRepository = {
       getFile: jest.fn().mockResolvedValue(file1),
-      findByContentHash: jest.fn().mockResolvedValue([]), // no existing match
+      findByContentHash: jest.fn().mockResolvedValue([]),
       updateDedupRecord: jest.fn().mockResolvedValue({}),
       incrementRefCount: jest.fn(),
     };
@@ -49,13 +49,11 @@ describe('dedup.checksum — unit', () => {
     expect(result.refCount).toBe(1);
     expect(result.checksum).toBeDefined();
 
-    // S3 delete was not called
     const deleteCalls = s3Client.send.mock.calls.filter(
       ([cmd]) => (cmd.constructor?.name || '').includes('DeleteObject')
     );
     expect(deleteCalls.length).toBe(0);
 
-    // Repository recorded non-dedup file
     expect(filesRepository.updateDedupRecord).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'user-1',
@@ -97,7 +95,7 @@ describe('dedup.checksum — unit', () => {
 
     const filesRepository = {
       getFile: jest.fn().mockResolvedValue(file2),
-      findByContentHash: jest.fn().mockResolvedValue([canonicalItem]), // match found!
+      findByContentHash: jest.fn().mockResolvedValue([canonicalItem]),
       incrementRefCount: jest.fn().mockResolvedValue({ refCount: 2 }),
       updateDedupRecord: jest.fn().mockResolvedValue({}),
     };
@@ -112,13 +110,11 @@ describe('dedup.checksum — unit', () => {
     expect(result.canonicalUserId).toBe('user-1');
     expect(result.canonicalS3Key).toBe('users/user-1/files/file-1');
 
-    // Incremented canonical refCount
     expect(filesRepository.incrementRefCount).toHaveBeenCalledWith({
       userId: 'user-1',
       fileId: 'file-1',
     });
 
-    // Redundant S3 object deleted
     const deleteCalls = s3Client.send.mock.calls.filter(
       ([cmd]) => (cmd.constructor?.name || '').includes('DeleteObject')
     );
@@ -129,7 +125,6 @@ describe('dedup.checksum — unit', () => {
       })
     );
 
-    // Dedup record updated
     expect(filesRepository.updateDedupRecord).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'user-2',
