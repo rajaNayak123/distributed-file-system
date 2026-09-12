@@ -68,12 +68,6 @@ describe('StorageService', () => {
     await expect(storageService.getObject({ key: 'missing' })).rejects.toBeInstanceOf(NotFoundError);
   });
 
-  // Presigned URL generation (getSignedUrl) computes an HMAC signature locally
-  // and never calls S3Client.send(), so aws-sdk-client-mock's mocked send()
-  // above doesn't cover it - these tests exercise the REAL AWS SDK v3 signer
-  // directly (using dummy static credentials, no network call is made) to
-  // close a gap where Phase 2's core deliverable (presigned URLs) had only
-  // ever been tested through the in-memory integration fake.
   describe('presigned URLs (real AWS SDK v3 signer, no mocking)', () => {
     let realStorageService;
 
@@ -96,8 +90,6 @@ describe('StorageService', () => {
       expect(url).toContain('users/u1/files/f1');
       expect(url).toContain('X-Amz-Expires=900');
       expect(url).toContain('X-Amz-Signature=');
-      // A PUT presigned URL must not carry a response-content-disposition or
-      // other GET-only query params.
       expect(url).not.toContain('response-content-disposition');
     });
 
