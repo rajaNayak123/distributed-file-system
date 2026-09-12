@@ -1,7 +1,4 @@
-// In-memory fake for IdempotencyRepository used in integration tests.
-// Mimics the atomic conditional-put behaviour of the real DynamoDB implementation.
-
-let store = new Map(); // key: `${userId}::${idempotencyKey}`
+let store = new Map();
 
 function storeKey(userId, idempotencyKey) {
   return `${userId}::${idempotencyKey}`;
@@ -10,7 +7,7 @@ function storeKey(userId, idempotencyKey) {
 export default class FakeIdempotencyRepository {
   async createInProgress({ userId, idempotencyKey, requestHash }) {
     const key = storeKey(userId, idempotencyKey);
-    if (store.has(key)) return null; // already exists
+    if (store.has(key)) return null;
     const record = {
       PK: userId,
       SK: idempotencyKey,
