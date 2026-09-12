@@ -76,8 +76,6 @@ describe('FilesRepository (real class, mocked DynamoDB client)', () => {
 
   it('updateFileStatus only transitions when current status is in fromStatuses (conditional update)', async () => {
     ddbMock.on(UpdateCommand).callsFake((input) => {
-      // The repository builds: attribute_exists(PK) AND #status IN (:fromStatus0)
-      // — one token per fromStatus entry, not a DynamoDB contains() call.
       expect(input.ConditionExpression).toContain('attribute_exists(PK)');
       expect(input.ConditionExpression).toContain('#status IN (:fromStatus0)');
       expect(input.ExpressionAttributeValues[':fromStatus0']).toBe('UPLOADING');
@@ -103,9 +101,7 @@ describe('FilesRepository (real class, mocked DynamoDB client)', () => {
         userId: 'u1',
         fileId: 'f1',
         fromStatuses: ['UPLOADING'],
-        toStatus: 'COMPLETED', // illegal jump, should never even reach here in practice - the state
-        // machine guard runs first, but the repository itself is defense-in-depth
-        // against races between two concurrent requests.
+        toStatus: 'COMPLETED',
       })
     ).rejects.toBeInstanceOf(ConflictError);
   });
@@ -141,12 +137,9 @@ describe('FilesRepository (real class, mocked DynamoDB client)', () => {
   });
 
   it("a lookup under a different (attacker) userId never returns the victim's item, even with the correct fileId", async () => {
-    // Simulate the real DynamoDB behavior: GetItem with PK=USER#attacker,
-    // SK=FILE#f1 simply finds nothing, because the victim's item lives under
-    // PK=USER#victim. We assert the key WE construct is scoped to the caller.
     ddbMock.on(GetCommand).callsFake((input) => {
       expect(input.Key.PK).toBe('USER#attacker');
-      return {}; // DynamoDB correctly finds nothing under this PK
+      return {};
     });
     await expect(
       filesRepository.requireOwnedFile({ userId: 'attacker', fileId: 'f1' })
