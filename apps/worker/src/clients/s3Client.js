@@ -4,8 +4,7 @@ import config from '../config/index.js';
 
 const requestHandler = new NodeHttpHandler({
   connectionTimeout: config.timeouts.sdkConnectMs,
-  // S3 streaming (GetObject for checksum) needs a generous socket timeout.
-  socketTimeout: Math.max(config.timeouts.sdkSocketMs, 300_000), // 5 min min
+  socketTimeout: Math.max(config.timeouts.sdkSocketMs, 300_000),
 });
 
 const s3Client = new S3Client({
