@@ -116,38 +116,6 @@ export default class FilesRepository{
     return file;
   }
 
-  async findAbandonedUploads(cutoffTimeISO) {
-    const items = await this.metadataService.scan({
-      tableName: this.tableName,
-      filterExpression: '#status = :status AND #updatedAt < :cutoff',
-      expressionAttributeNames: {
-        '#status': 'status',
-        '#updatedAt': 'updatedAt',
-      },
-      expressionAttributeValues: {
-        ':status': 'UPLOADING',
-        ':cutoff': cutoffTimeISO,
-      },
-    });
-    return items;
-  }
-
-  async findStuckCompleting(cutoffTimeISO) {
-    const items = await this.metadataService.scan({
-      tableName: this.tableName,
-      filterExpression: '#status = :status AND #updatedAt < :cutoff',
-      expressionAttributeNames: {
-        '#status': 'status',
-        '#updatedAt': 'updatedAt',
-      },
-      expressionAttributeValues: {
-        ':status': 'COMPLETING',
-        ':cutoff': cutoffTimeISO,
-      },
-    });
-    return items;
-  }
-
   async findByContentHash(contentHash) {
     const items = await this.metadataService.query({
       tableName: this.tableName,
