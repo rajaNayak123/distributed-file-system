@@ -1,6 +1,5 @@
 import request from 'supertest';
 import { buildApp, resetFakes, registerAndLogin, FakeStorageService } from '../helpers/testApp.js';
-import config from '../../src/config/index.js';
 
 describe('Multipart upload flow (Phase 3)', () => {
   let app;
@@ -13,7 +12,6 @@ describe('Multipart upload flow (Phase 3)', () => {
   });
 
   it('initiates a multipart upload, gets part URLs, and completes successfully', async () => {
-    // 1. Create file record (> 50MB)
     const initiateRes = await request(app)
       .post('/uploads')
       .set('Authorization', `Bearer ${accessToken}`)
@@ -23,7 +21,6 @@ describe('Multipart upload flow (Phase 3)', () => {
     expect(initiateRes.body.multipartRequired).toBe(true);
     const { fileId } = initiateRes.body;
 
-    // 2. Initiate multipart upload
     const multipartInitRes = await request(app)
       .post(`/uploads/${fileId}/multipart/initiate`)
       .set('Authorization', `Bearer ${accessToken}`)
@@ -32,7 +29,6 @@ describe('Multipart upload flow (Phase 3)', () => {
     expect(multipartInitRes.status).toBe(200);
     expect(multipartInitRes.body.s3UploadId).toBeDefined();
 
-    // 3. Request part URLs
     const partsRes = await request(app)
       .post(`/uploads/${fileId}/multipart/parts`)
       .set('Authorization', `Bearer ${accessToken}`)
@@ -42,7 +38,6 @@ describe('Multipart upload flow (Phase 3)', () => {
     expect(partsRes.body.presignedUrls.length).toBe(2);
     expect(partsRes.body.presignedUrls[0].url).toMatch(/partNumber=1/);
 
-    // Idempotency: request same parts again
     const partsRes2 = await request(app)
       .post(`/uploads/${fileId}/multipart/parts`)
       .set('Authorization', `Bearer ${accessToken}`)
@@ -50,15 +45,12 @@ describe('Multipart upload flow (Phase 3)', () => {
     expect(partsRes2.status).toBe(200);
     expect(partsRes2.body.presignedUrls.length).toBe(1);
 
-    // 4. Simulate client putting parts
-    // To complete, we just simulate the final object existing in S3 for headObject check
     const listRes = await request(app)
       .get('/files?includeIncomplete=true')
       .set('Authorization', `Bearer ${accessToken}`);
     const file = listRes.body.files.find((f) => f.fileId === fileId);
     FakeStorageService.__simulateClientPut(file.s3Key, { size: 60 * 1024 * 1024, contentType: 'video/mp4' });
 
-    // 5. Complete multipart upload
     const completeRes = await request(app)
       .post(`/uploads/${fileId}/multipart/complete`)
       .set('Authorization', `Bearer ${accessToken}`)
@@ -107,7 +99,6 @@ describe('Multipart upload flow (Phase 3)', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ partNumbers: [1, 2] });
 
-    // Deliberately DO NOT simulate client put, so HeadObject fails
     const completeRes = await request(app)
       .post(`/uploads/${fileId}/multipart/complete`)
       .set('Authorization', `Bearer ${accessToken}`)
@@ -119,7 +110,6 @@ describe('Multipart upload flow (Phase 3)', () => {
   });
 
   it('allows retrying a FAILED multipart upload, restarting multipart upload without duplicate records', async () => {
-    // 1. Create multipart upload (> 50MB)
     const initiateRes = await request(app)
       .post('/uploads')
       .set('Authorization', `Bearer ${accessToken}`)
@@ -131,14 +121,12 @@ describe('Multipart upload flow (Phase 3)', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .send();
 
-    // 2. Abort upload so it ends in FAILED
     const abortRes = await request(app)
       .post(`/uploads/${fileId}/multipart/abort`)
       .set('Authorization', `Bearer ${accessToken}`)
       .send();
     expect(abortRes.body.status).toBe('FAILED');
 
-    // 3. Retry the failed upload via POST /files/:id/retry
     const retryRes = await request(app)
       .post(`/files/${fileId}/retry`)
       .set('Authorization', `Bearer ${accessToken}`)
@@ -149,14 +137,12 @@ describe('Multipart upload flow (Phase 3)', () => {
     expect(retryRes.body.uploadType).toBe('multipart');
     expect(retryRes.body.s3UploadId).toBeDefined();
 
-    // 4. Request parts using the restarted session
     const partsRes = await request(app)
       .post(`/uploads/${fileId}/multipart/parts`)
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ partNumbers: [1] });
     expect(partsRes.status).toBe(200);
 
-    // 5. Complete restarted upload
     const listRes = await request(app)
       .get('/files?includeIncomplete=true')
       .set('Authorization', `Bearer ${accessToken}`);
@@ -171,7 +157,6 @@ describe('Multipart upload flow (Phase 3)', () => {
     expect(completeRes.status).toBe(200);
     expect(completeRes.body.status).toBe('COMPLETED');
 
-    // 6. Verify still only one file record exists
     const finalFiles = await request(app)
       .get('/files')
       .set('Authorization', `Bearer ${accessToken}`);
