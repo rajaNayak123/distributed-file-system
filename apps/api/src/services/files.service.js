@@ -52,7 +52,6 @@ export default class FilesService {
     let shouldDeleteS3 = true;
 
     if (existing.isDedup) {
-      // Case 1: Deduplicated alias referencing a canonical object.
       let canonicalActive = false;
       let remainingCanonicalRefCount = 0;
 
@@ -81,11 +80,8 @@ export default class FilesService {
       }
 
       if (canonicalActive && remainingCanonicalRefCount > 0) {
-        // Canonical file still exists and has active references (or is itself active)
         shouldDeleteS3 = false;
       } else {
-        // Canonical record no longer exists or has no remaining active references.
-        // Check if any other active (COMPLETED) files share this contentHash / s3Key.
         const hash = existing.contentHash || existing.checksum;
         let otherActiveMatches = [];
 
@@ -103,8 +99,6 @@ export default class FilesService {
         shouldDeleteS3 = otherActiveMatches.length === 0;
       }
     } else if (existing.refCount && existing.refCount > 1) {
-      // Case 2: Canonical object with active references.
-      // S3 object must be preserved because other files still point to it.
       shouldDeleteS3 = false;
       try {
         await this.filesRepository.decrementRefCount({ userId, fileId });
@@ -112,8 +106,6 @@ export default class FilesService {
         logger.warn('dedup_decrement_refcount_failed', { userId, fileId, error: err.message });
       }
     } else {
-      // Case 3: Canonical object with refCount <= 1 or no refCount.
-      // Check if any other records share contentHash before deleting S3.
       const hash = existing.contentHash || existing.checksum;
       if (hash && typeof this.filesRepository.findByContentHash === 'function') {
         try {
@@ -125,7 +117,7 @@ export default class FilesService {
             shouldDeleteS3 = false;
           }
         } catch (err) {
-          // ignore lookup error and proceed
+          logger.warn('dedup_find_matches_failed', { error: err.message });
         }
       }
     }
