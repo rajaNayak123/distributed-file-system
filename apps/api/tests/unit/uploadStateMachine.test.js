@@ -33,7 +33,6 @@ describe('uploadStateMachine', () => {
   });
 
   it('allows FAILED -> UPLOADING for the retry path, but not other transitions out of FAILED', () => {
-    // FAILED is semi-terminal: only UPLOADING is allowed (POST /files/:id/retry).
     expect(canTransition(STATUS.FAILED, STATUS.UPLOADING)).toBe(true);
     expect(canTransition(STATUS.FAILED, STATUS.COMPLETED)).toBe(false);
     expect(canTransition(STATUS.FAILED, STATUS.COMPLETING)).toBe(false);
