@@ -60,7 +60,6 @@ describe('Cross-user ownership enforcement', () => {
     expect(res.status).toBe(200);
     expect(res.body.alreadyDeleted).toBe(true);
 
-    // Confirm the owner's file is untouched.
     const stillThere = await request(app)
       .get(`/files/${fileId}`)
       .set('Authorization', `Bearer ${ownerToken}`);
