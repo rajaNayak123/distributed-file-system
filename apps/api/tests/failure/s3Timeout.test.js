@@ -1,10 +1,3 @@
-/**
- * tests/failure/s3Timeout.test.js
- *
- * Failure scenario: S3 getPresignedPutUrl throws (simulates a timeout or
- * network error). Assert the upload ends in FAILED with a recorded
- * failureReason — NOT stuck in INITIATED forever.
- */
 import UploadsService from '../../src/services/uploads.service.js';
 import FakeFilesRepository from '../fakes/fakeFilesRepository.js';
 import { UpstreamServiceError } from '../../src/utils/errors.js';
@@ -33,7 +26,6 @@ describe('S3 getPresignedPutUrl failure', () => {
       })
     ).rejects.toThrow(UpstreamServiceError);
 
-    // File must be marked FAILED — not left in INITIATED.
     const files = await fakeRepo.listFilesForUser({ userId: 'user-1', includeIncomplete: true });
     expect(files).toHaveLength(1);
     expect(files[0].status).toBe('FAILED');
@@ -53,7 +45,6 @@ describe('S3 getPresignedPutUrl failure', () => {
 
     const service = new UploadsService(fakeRepo, fakeS3);
 
-    // First call fails → file in FAILED
     await expect(
       service.initiateUpload({
         userId: 'user-1',
@@ -66,14 +57,13 @@ describe('S3 getPresignedPutUrl failure', () => {
     const [failedFile] = await fakeRepo.listFilesForUser({ userId: 'user-1', includeIncomplete: true });
     const { fileId } = failedFile;
 
-    // Retry → file moves to UPLOADING, fresh presigned URL returned.
     const result = await service.retryFailedUpload({ userId: 'user-1', fileId });
 
     expect(result.presignedUrl).toBe('https://fake-s3.local/retry-url');
     expect(result.fileId).toBe(fileId);
 
     const files = await fakeRepo.listFilesForUser({ userId: 'user-1', includeIncomplete: true });
-    expect(files).toHaveLength(1); // still only ONE file record
+    expect(files).toHaveLength(1);
     expect(files[0].status).toBe('UPLOADING');
   });
 });
