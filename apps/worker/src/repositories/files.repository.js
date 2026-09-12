@@ -7,20 +7,6 @@ import {
 import defaultDocClient from '../clients/dynamoClient.js';
 import config from '../config/index.js';
 
-/**
- * Worker-side FilesRepository.
- *
- * Intentionally minimal — only the operations the worker needs:
- *   - getFile              (read a file item to get userId/s3Key/status)
- *   - updateChecksum       (write computed SHA-256 back to the item)
- *   - updateFileStatus     (used by cleanup to mark FAILED)
- *   - findAbandonedUploads (cleanup: UPLOADING past retention threshold)
- *   - findStuckCompleting  (cleanup: COMPLETING past stuck threshold)
- *
- * The key schema (PK = USER#<userId>, SK = FILE#<fileId>) must stay in sync
- * with apps/api/src/repositories/files.repository.js. If you change the key
- * shape there, change it here too.
- */
 export default class FilesRepository {
   constructor(
     docClient = defaultDocClient,
@@ -51,12 +37,6 @@ export default class FilesRepository {
     return result.Item || null;
   }
 
-  /**
-   * Writes the computed checksum back to the file item.
-   * Uses a conditional expression so a concurrent write (e.g. a second worker
-   * that somehow got the same message) to an already-checksummed item is a
-   * no-op rather than an overwrite.
-   */
   async updateChecksum({ userId, fileId, checksum }) {
     await this.docClient.send(
       new UpdateCommand({
@@ -66,7 +46,6 @@ export default class FilesRepository {
           SK: FilesRepository.sk(fileId),
         },
         UpdateExpression: 'SET #checksum = :checksum, #updatedAt = :updatedAt',
-        // Only update if the item exists. We never create items in the worker.
         ConditionExpression: 'attribute_exists(PK)',
         ExpressionAttributeNames: {
           '#checksum': 'checksum',
@@ -80,11 +59,6 @@ export default class FilesRepository {
     );
   }
 
-  /**
-   * Transitions a file from one of `fromStatuses` to `toStatus`.
-   * Throws if the current status is not one of `fromStatuses` (optimistic
-   * concurrency — prevents double-marking as FAILED by two cleanup workers).
-   */
   async updateFileStatus({ userId, fileId, fromStatuses, toStatus, extraAttributes = {} }) {
     const now = new Date().toISOString();
     const attributeNames = { '#status': 'status', '#updatedAt': 'updatedAt' };
@@ -155,11 +129,6 @@ export default class FilesRepository {
     return result.Items || [];
   }
 
-  /**
-   * Finds uploads in suspicious states:
-   * 1. Stuck in UPLOADING or COMPLETING older than stuckCutoffISO.
-   * 2. In COMPLETED status without a checksum older than unverifiedCutoffISO.
-   */
   async findSuspiciousUploads({ stuckCutoffISO, unverifiedCutoffISO }) {
     const result = await this.docClient.send(
       new ScanCommand({
@@ -185,9 +154,6 @@ export default class FilesRepository {
     return result.Items || [];
   }
 
-  /**
-   * Queries files by SHA-256 contentHash using the ContentHashIndex GSI.
-   */
   async findByContentHash(contentHash) {
     const result = await this.docClient.send(
       new QueryCommand({
@@ -205,9 +171,6 @@ export default class FilesRepository {
     return result.Items || [];
   }
 
-  /**
-   * Atomically increments refCount on a canonical file.
-   */
   async incrementRefCount({ userId, fileId }) {
     const result = await this.docClient.send(
       new UpdateCommand({
@@ -234,9 +197,6 @@ export default class FilesRepository {
     return result.Attributes;
   }
 
-  /**
-   * Atomically decrements refCount on a canonical file.
-   */
   async decrementRefCount({ userId, fileId }) {
     const result = await this.docClient.send(
       new UpdateCommand({
@@ -262,9 +222,6 @@ export default class FilesRepository {
     return result.Attributes;
   }
 
-  /**
-   * Updates file attributes for deduplication.
-   */
   async updateDedupRecord({
     userId,
     fileId,
@@ -318,14 +275,6 @@ export default class FilesRepository {
     );
   }
 
-  /**
-   * Checks if any active (COMPLETED) file record in DynamoDB references the given s3Key.
-   * This is critical for deduplication: if the canonical uploader deletes their file,
-   * other deduplicated files may still point to the canonical S3 object.
-   *
-   * @param {string} s3Key
-   * @returns {Promise<boolean>} true if at least one active file references this S3 object
-   */
   async hasActiveReferencesToS3Key(s3Key) {
     let exclusiveStartKey = undefined;
     do {
@@ -354,4 +303,3 @@ export default class FilesRepository {
     return false;
   }
 }
-
