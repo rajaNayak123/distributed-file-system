@@ -167,8 +167,8 @@ describe('reconciliation.processor — unit', () => {
         }),
       };
 
-      const oldDate = new Date(Date.now() - 2 * 60 * 60 * 1000); // 2 hours ago
-      const recentDate = new Date(Date.now() - 5 * 60 * 1000); // 5 mins ago
+      const oldDate = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      const recentDate = new Date(Date.now() - 5 * 60 * 1000);
 
       const s3Objects = [
         { Key: 'users/u1/files/missing-file', LastModified: oldDate },
@@ -227,7 +227,7 @@ describe('reconciliation.processor — unit', () => {
         }),
       };
 
-      const oldDate = new Date(Date.now() - 2 * 60 * 60 * 1000); // 2 hours ago
+      const oldDate = new Date(Date.now() - 2 * 60 * 60 * 1000);
       const s3Objects = [
         { Key: 'users/u1/files/deleted-canonical-file', LastModified: oldDate },
         { Key: 'users/u1/files/failed-canonical-file', LastModified: oldDate },
