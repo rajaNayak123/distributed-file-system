@@ -47,21 +47,18 @@ describe('Presigned upload flow (Phase 2)', () => {
     expect(completeRes.body.status).toBe('COMPLETED');
     expect(completeRes.body.size).toBe(8192);
 
-    // Now visible via GET /files (COMPLETED-only default view).
     const getRes = await request(app)
       .get(`/files/${fileId}`)
       .set('Authorization', `Bearer ${accessToken}`);
     expect(getRes.status).toBe(200);
     expect(getRes.body.file.status).toBe('COMPLETED');
 
-    // Download returns a short-lived presigned URL, not the bytes.
     const downloadRes = await request(app)
       .get(`/files/${fileId}/download`)
       .set('Authorization', `Bearer ${accessToken}`);
     expect(downloadRes.status).toBe(200);
     expect(downloadRes.body.downloadUrl).toMatch(/^https:\/\/fake-s3\.local\//);
 
-    // Delete is idempotent - calling it twice both succeed.
     const del1 = await request(app)
       .delete(`/files/${fileId}`)
       .set('Authorization', `Bearer ${accessToken}`);
@@ -83,7 +80,6 @@ describe('Presigned upload flow (Phase 2)', () => {
       .send({ fileName: 'never-uploaded.bin', contentType: 'application/octet-stream', size: 1024 });
     const { fileId } = initiateRes.body;
 
-    // Deliberately do NOT simulate the client PUT.
     const completeRes = await request(app)
       .post(`/uploads/${fileId}/complete`)
       .set('Authorization', `Bearer ${accessToken}`)
@@ -109,7 +105,6 @@ describe('Presigned upload flow (Phase 2)', () => {
       .send({ fileName: 'still-going.bin', contentType: 'application/octet-stream', size: 500 });
     const { fileId } = initiateRes.body;
 
-    // Status is UPLOADING at this point - no S3 object has been verified yet.
     const downloadRes = await request(app)
       .get(`/files/${fileId}/download`)
       .set('Authorization', `Bearer ${accessToken}`);
@@ -124,7 +119,6 @@ describe('Presigned upload flow (Phase 2)', () => {
       .send({ fileName: 'broken.bin', contentType: 'application/octet-stream', size: 500 });
     const { fileId } = initiateRes.body;
 
-    // Never simulate the client PUT, so /complete fails the object over to FAILED.
     await request(app)
       .post(`/uploads/${fileId}/complete`)
       .set('Authorization', `Bearer ${accessToken}`)
