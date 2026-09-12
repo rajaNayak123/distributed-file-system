@@ -1,7 +1,7 @@
 import logger from '../utils/logger.js';
 import { AppError } from '../utils/errors.js';
 
-export default function errorHandlerMiddleware(err, req, res, next) {
+export default function errorHandlerMiddleware(err, req, res, _next) {
   if (err instanceof AppError) {
     logger.warn('handled_error', {
       requestId: req.requestId,
