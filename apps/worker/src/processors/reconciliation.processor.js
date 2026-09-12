@@ -8,9 +8,6 @@ import FilesRepository from '../repositories/files.repository.js';
 import config from '../config/index.js';
 import { processFileUploaded } from './checksum.processor.js';
 
-/**
- * Checks if an S3 error indicates that the object was not found.
- */
 export function isNotFoundError(err) {
   return (
     err.name === 'NotFound' ||
@@ -20,32 +17,12 @@ export function isNotFoundError(err) {
   );
 }
 
-/**
- * Parses an S3 key formatted as users/<userId>/files/<fileId>.
- */
 export function parseS3Key(key) {
   const match = key && key.match(/^users\/([^/]+)\/files\/([^/]+)$/);
   if (!match) return null;
   return { userId: match[1], fileId: match[2] };
 }
 
-/**
- * Runs a full reconciliation cycle.
- *
- * Reconciles consistency gaps between S3 and DynamoDB:
- *
- * Case A (DynamoDB says exists, S3 object missing):
- *   Scans DynamoDB for suspicious records (stuck in UPLOADING/COMPLETING or COMPLETED
- *   without checksum past configured cutoff). Calls S3 HeadObject for each.
- *   If the S3 object is missing, marks the DynamoDB record as FAILED with
- *   failureReason: "reconciliation: object missing".
- *   If the S3 object exists for an unverified COMPLETED record, triggers checksum calculation.
- *
- * Case B (S3 object exists, DynamoDB record missing or FAILED):
- *   Sweeps S3 bucket via ListObjectsV2. For objects older than the orphan grace period,
- *   checks if corresponding DynamoDB record exists and is active. If missing or FAILED,
- *   and not referenced as a canonical dedup object, deletes the orphaned S3 object.
- */
 export async function runReconciliation({
   filesRepository = new FilesRepository(),
   s3Client = null,
@@ -71,7 +48,6 @@ export async function runReconciliation({
   let caseBScanned = 0;
   let caseBOrphansDeleted = 0;
 
-  // ── CASE A: DynamoDB records -> S3 verification ───────────────────────────
   logger.info(JSON.stringify({
     level: 'info',
     event: 'reconciliation_case_a_start',
@@ -95,7 +71,6 @@ export async function runReconciliation({
         })
       );
 
-      // Object exists in S3
       if (item.status === 'COMPLETED' && (!item.checksum || item.checksum === null)) {
         try {
           await processFileUploaded(
@@ -122,7 +97,6 @@ export async function runReconciliation({
       }
     } catch (err) {
       if (isNotFoundError(err)) {
-        // Case A hit: DynamoDB says object exists or is uploading/completing, but S3 object is missing!
         try {
           await filesRepository.updateFileStatus({
             userId: item.userId,
@@ -166,7 +140,6 @@ export async function runReconciliation({
     }
   }
 
-  // ── CASE B: S3 bucket sweep -> DynamoDB orphan detection ──────────────────
   logger.info(JSON.stringify({
     level: 'info',
     event: 'reconciliation_case_b_start',
@@ -185,7 +158,6 @@ export async function runReconciliation({
       caseBScanned += contents.length;
 
       for (const s3Obj of contents) {
-        // Skip if younger than grace period
         if (s3Obj.LastModified && new Date(s3Obj.LastModified) > orphanCutoffDate) {
           continue;
         }
@@ -195,7 +167,6 @@ export async function runReconciliation({
         let orphanReason = '';
 
         if (!parsed) {
-          // Unrecognized key format older than grace period
           const hasActiveRefs = typeof filesRepository.hasActiveReferencesToS3Key === 'function'
             ? await filesRepository.hasActiveReferencesToS3Key(s3Obj.Key)
             : false;
@@ -212,9 +183,6 @@ export async function runReconciliation({
           });
 
           if (!fileRecord || fileRecord.status === 'FAILED') {
-            // The primary file record is missing or failed.
-            // Before treating this S3 object as an orphan, check if any other active
-            // (COMPLETED) records in DynamoDB reference this s3Key (e.g. via deduplication).
             const hasActiveRefs = typeof filesRepository.hasActiveReferencesToS3Key === 'function'
               ? await filesRepository.hasActiveReferencesToS3Key(s3Obj.Key)
               : false;
@@ -287,9 +255,6 @@ export async function runReconciliation({
   return result;
 }
 
-/**
- * Handles on-demand single item RECONCILE message from SQS.
- */
 export async function processReconciliation(
   message,
   { filesRepository = new FilesRepository(), s3Client = defaultS3Client } = {}
@@ -308,7 +273,6 @@ export async function processReconciliation(
       })
     );
 
-    // If S3 object exists and checksum is missing on COMPLETED file, calculate it
     if (file.status === 'COMPLETED' && (!file.checksum || file.checksum === null)) {
       return await processFileUploaded(
         { fileId, userId, s3Key: file.s3Key },
