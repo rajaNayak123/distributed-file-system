@@ -13,6 +13,8 @@ const s3Client = new S3Client({
   forcePathStyle: config.aws.forcePathStyle,
   maxAttempts: config.retries.maxAttempts, 
   requestHandler,
+  requestChecksumCalculation: 'WHEN_REQUIRED',
+  responseChecksumValidation: 'WHEN_REQUIRED',
   credentials: {
     accessKeyId: config.aws.accessKeyId,
     secretAccessKey: config.aws.secretAccessKey,
