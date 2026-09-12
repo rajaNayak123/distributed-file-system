@@ -49,7 +49,6 @@ export default class StorageService{
     }
   }
 
-  // Verifies an object exists and returns its size/etag without downloading it.Used by uploads.service.js to confirm a client's PUT actually landed before we ever mark an upload COMPLETED we never trust the client's say so.
   async headObject({key}){
     try {
       const result = await this.s3Client.send(
@@ -77,8 +76,7 @@ export default class StorageService{
       throw new UpstreamServiceError('Failed to delete object from S3', { cause: err.message });
     }
   }
-  
-  //  Generates a short-lived presigned PUT URL. The API never sees the bytes, the client PUTs directly to S3 using this URL.
+
   async getPresignedPutUrl({ key, contentType, expiresInSeconds }) {
     try {
       const command = new PutObjectCommand({
@@ -95,7 +93,6 @@ export default class StorageService{
     }
   }
 
-  //  Generates a short-lived presigned GET URL for downloads. Ownership must be verified by the caller BEFORE calling this this method has no knowledge of who owns the object.
   async getPresignedGetUrl({ key, expiresInSeconds }) {
     try {
       const command = new GetObjectCommand({ Bucket: this.bucket, Key: key });
@@ -142,7 +139,6 @@ export default class StorageService{
 
   async completeMultipartUpload({ key, uploadId, parts }) {
     try {
-      // parts is an array of { PartNumber, ETag }
       const sortedParts = [...parts].sort((a, b) => a.PartNumber - b.PartNumber);
       const result = await this.s3Client.send(
         new CompleteMultipartUploadCommand({
