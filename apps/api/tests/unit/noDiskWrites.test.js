@@ -1,18 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
-// Note: this test file relies on __dirname, which Babel's CommonJS-target
-// transform provides automatically when Jest transpiles this ESM source for
-// execution (see babel.config.cjs). It is not run via Node's native ESM
-// loader, where __dirname wouldn't exist - only the transpiled test run does.
 const SRC_DIR = path.join(__dirname, '..', '..', 'src');
 
-// Patterns that would indicate file bytes are being persisted to local disk
-// inside the API tier - forbidden by the project's core principle (API
-// servers must NEVER permanently store uploaded file bytes on local disk).
-// This is a static guard, not a runtime one: it fails the build the moment
-// someone (in a later phase) accidentally reaches for multer or a disk
-// write API instead of streaming through S3.
 const FORBIDDEN_PATTERNS = [
   /from ['"]multer['"]/,
   /require\(['"]multer['"]\)/,
