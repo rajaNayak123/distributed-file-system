@@ -10,7 +10,8 @@ const requestHandler = new NodeHttpHandler({
 
 const clientConfig = {
   region: config.aws.region,
-  maxAttempts: config.retries.maxAttempts, 
+  maxAttempts: config.retries.maxAttempts,
+  requestHandler,
   credentials: {
     accessKeyId: config.aws.accessKeyId,
     secretAccessKey: config.aws.secretAccessKey,
