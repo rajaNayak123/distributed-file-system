@@ -1,23 +1,4 @@
 #!/usr/bin/env node
-/**
- * DLQ Inspector — apps/worker/scripts/inspect-dlq.js
- *
- * Usage:
- *   node scripts/inspect-dlq.js [--max-messages N]
- *
- * Reads up to N messages (default 10) from the dead-letter queue and prints
- * them as pretty JSON. Messages are NOT deleted — this is a read-only
- * inspection tool.
- *
- * To run against LocalStack:
- *   SQS_DLQ_URL=http://localhost:4566/000000000000/file-processing-dlq \
- *   SQS_ENDPOINT=http://localhost:4566 \
- *   node scripts/inspect-dlq.js
- *
- * To re-drive messages back to the main queue, use the AWS Console, CLI
- * (aws sqs start-message-move-task), or delete them from the DLQ after
- * investigating the root cause.
- */
 
 import { SQSClient, ReceiveMessageCommand } from '@aws-sdk/client-sqs';
 import dotenv from 'dotenv';
@@ -57,8 +38,6 @@ const result = await client.send(
     WaitTimeSeconds: 5,
     AttributeNames: ['All'],
     MessageAttributeNames: ['All'],
-    // Use a short visibility timeout so messages are quickly visible again
-    // to other consumers (or the next inspect-dlq run).
     VisibilityTimeout: 30,
   })
 );
