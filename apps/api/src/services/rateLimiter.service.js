@@ -1,10 +1,6 @@
 import Redis from 'ioredis';
 import config from '../config/index.js';
 
-/**
- * In-memory shared store for testing and fallback.
- * Allows simulating multiple API instances connected to the same shared store.
- */
 export class SharedMemoryStore {
   constructor() {
     this.counters = new Map();
@@ -33,14 +29,8 @@ export class SharedMemoryStore {
   }
 }
 
-/**
- * Shared memory store singleton for in-process sharing across instances.
- */
 export const defaultSharedMemoryStore = new SharedMemoryStore();
 
-/**
- * Redis-backed store for production horizontal scaling across stateless API containers.
- */
 export class RedisStore {
   constructor(redisClient) {
     this.client = redisClient;
@@ -53,19 +43,12 @@ export class RedisStore {
       .expire(key, ttlSeconds)
       .exec();
 
-    // results[0] = [err, count]
     const [err, count] = results[0];
     if (err) throw err;
     return count;
   }
 }
 
-/**
- * RateLimiterService
- *
- * Implements atomic fixed-window rate limiting.
- * Scoped by identifier (e.g. userId or IP).
- */
 export default class RateLimiterService {
   constructor({
     store = null,
@@ -92,15 +75,6 @@ export default class RateLimiterService {
     }
   }
 
-  /**
-   * Consumes 1 request token for the given key in the current window.
-   *
-   * @param {object} options
-   * @param {string} options.key - identifier (e.g. userId or IP)
-   * @param {number} [options.windowMs] - window duration in ms (default: 60s)
-   * @param {number} [options.max] - max allowed requests in window (default: 30)
-   * @returns {Promise<{ allowed: boolean, limit: number, remaining: number, resetTime: number, retryAfter: number, count: number }>}
-   */
   async consume({
     key,
     windowMs = config.rateLimit.windowMs,
