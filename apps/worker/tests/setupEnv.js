@@ -1,6 +1,3 @@
-// Worker test environment setup.
-// Sets required env vars so config/index.js does not throw on import.
-
 process.env.SQS_QUEUE_URL = process.env.SQS_QUEUE_URL || 'http://localhost:4566/000000000000/file-processing-queue';
 process.env.SQS_DLQ_URL = process.env.SQS_DLQ_URL || 'http://localhost:4566/000000000000/file-processing-dlq';
 process.env.SQS_ENDPOINT = process.env.SQS_ENDPOINT || 'http://localhost:4566';
