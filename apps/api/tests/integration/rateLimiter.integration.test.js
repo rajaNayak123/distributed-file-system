@@ -31,7 +31,6 @@ describe('Rate limiting integration & cross-instance enforcement', () => {
   });
 
   it('enforces rate limit across multiple requests and returns 429 with Retry-After', async () => {
-    // Create a custom app with a tight rate limit of 3 requests for testing
     const testStore = new SharedMemoryStore();
     const testLimiter = new RateLimiterService({ store: testStore, keyPrefix: 'test-tight' });
     const tightMiddleware = createRateLimiter({
@@ -44,17 +43,14 @@ describe('Rate limiting integration & cross-instance enforcement', () => {
     tightApp.use(express.json());
     tightApp.post('/test-route', tightMiddleware, (req, res) => res.json({ ok: true }));
 
-    // Request 1: ok
     const res1 = await request(tightApp).post('/test-route').send();
     expect(res1.status).toBe(200);
     expect(res1.headers['x-ratelimit-remaining']).toBe('1');
 
-    // Request 2: ok
     const res2 = await request(tightApp).post('/test-route').send();
     expect(res2.status).toBe(200);
     expect(res2.headers['x-ratelimit-remaining']).toBe('0');
 
-    // Request 3: 429 Too Many Requests
     const res3 = await request(tightApp).post('/test-route').send();
     expect(res3.status).toBe(429);
     expect(res3.headers['retry-after']).toBeDefined();
@@ -67,7 +63,6 @@ describe('Rate limiting integration & cross-instance enforcement', () => {
   });
 
   it('enforces rate limits consistently across multiple stateless API instances sharing the same store', async () => {
-    // Simulate api-1 and api-2 behind nginx sharing the same Redis/shared store backend
     const sharedClusterStore = new SharedMemoryStore();
     const limitMax = 3;
     const windowMs = 60000;
@@ -83,7 +78,6 @@ describe('Rate limiting integration & cross-instance enforcement', () => {
 
     const sharedKeyGen = (req) => req.headers['x-user-id'] || 'anon';
 
-    // Instance 1 (simulating api-1)
     const api1App = express();
     api1App.use(
       createRateLimiter({
@@ -95,7 +89,6 @@ describe('Rate limiting integration & cross-instance enforcement', () => {
     );
     api1App.post('/action', (req, res) => res.json({ instance: 'api-1', ok: true }));
 
-    // Instance 2 (simulating api-2)
     const api2App = express();
     api2App.use(
       createRateLimiter({
@@ -109,28 +102,23 @@ describe('Rate limiting integration & cross-instance enforcement', () => {
 
     const userHeader = { 'x-user-id': 'client-42' };
 
-    // Request 1 routed to api-1
     const r1 = await request(api1App).post('/action').set(userHeader);
     expect(r1.status).toBe(200);
     expect(r1.headers['x-ratelimit-remaining']).toBe('2');
 
-    // Request 2 routed by nginx load balancer to api-2
     const r2 = await request(api2App).post('/action').set(userHeader);
     expect(r2.status).toBe(200);
     expect(r2.headers['x-ratelimit-remaining']).toBe('1');
 
-    // Request 3 routed back to api-1
     const r3 = await request(api1App).post('/action').set(userHeader);
     expect(r3.status).toBe(200);
     expect(r3.headers['x-ratelimit-remaining']).toBe('0');
 
-    // Request 4 routed to api-2 -> BLOCKED with 429 despite arriving at api-2!
     const r4 = await request(api2App).post('/action').set(userHeader);
     expect(r4.status).toBe(429);
     expect(r4.headers['retry-after']).toBeDefined();
     expect(r4.body.error).toBe('Too Many Requests');
 
-    // Request 5 routed to api-1 -> also BLOCKED with 429
     const r5 = await request(api1App).post('/action').set(userHeader);
     expect(r5.status).toBe(429);
   });
