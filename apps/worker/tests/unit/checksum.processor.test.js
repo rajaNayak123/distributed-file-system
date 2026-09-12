@@ -1,17 +1,6 @@
 import { processFileUploaded } from '../../src/processors/checksum.processor.js';
 import { Readable } from 'stream';
 
-/**
- * Unit tests for checksum.processor.js
- *
- * All AWS SDK calls are replaced with in-memory fakes — no LocalStack needed.
- * Tests verify:
- *   - SHA-256 is computed correctly and written to the repository.
- *   - Already-checksummed files are skipped (idempotency).
- *   - Non-COMPLETED files are skipped.
- *   - Deleted files (null from repo) are skipped.
- *   - S3 errors propagate (so SQS retries).
- */
 describe('checksum.processor — unit', () => {
   const userId = 'user-123';
   const fileId = 'file-abc';
@@ -51,9 +40,8 @@ describe('checksum.processor — unit', () => {
 
     expect(result.skipped).toBeUndefined();
     expect(result.checksum).toBeDefined();
-    expect(result.checksum).toHaveLength(64); // SHA-256 hex = 64 chars
+    expect(result.checksum).toHaveLength(64);
 
-    // Verify the checksum is the real SHA-256 of 'hello world'
     const { createHash } = await import('crypto');
     const expected = createHash('sha256').update('hello world').digest('hex');
     expect(result.checksum).toBe(expected);
