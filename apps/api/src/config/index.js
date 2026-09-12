@@ -41,16 +41,16 @@ const config = {
   },
 
   uploads: {
-    presignedPutExpirySeconds: parseInt(process.env.PRESIGNED_PUT_EXPIRY_SECONDS || '900', 10), // 15 min
-    presignedGetExpirySeconds: parseInt(process.env.PRESIGNED_GET_EXPIRY_SECONDS || '300', 10), // 5 min
+    presignedPutExpirySeconds: parseInt(process.env.PRESIGNED_PUT_EXPIRY_SECONDS || '900', 10),
+    presignedGetExpirySeconds: parseInt(process.env.PRESIGNED_GET_EXPIRY_SECONDS || '300', 10),
     maxFileSizeBytes: parseInt(process.env.MAX_FILE_SIZE_BYTES || `${5 * 1024 * 1024 * 1024}`, 10),
-    allowedContentTypes: (process.env.ALLOWED_CONTENT_TYPES || '').trim(), // empty = allow all, comma-separated allowlist otherwise
+    allowedContentTypes: (process.env.ALLOWED_CONTENT_TYPES || '').trim(),
   },
 
   timeouts: {
     sdkConnectMs: parseInt(process.env.SDK_CONNECT_TIMEOUT_MS || '3000', 10),
     sdkSocketMs: parseInt(process.env.SDK_SOCKET_TIMEOUT_MS || '10000', 10),
-    requestMs: parseInt(process.env.REQUEST_TIMEOUT_MS || '60000', 10), 
+    requestMs: parseInt(process.env.REQUEST_TIMEOUT_MS || '60000', 10),
   },
 
   retries: {
@@ -58,21 +58,18 @@ const config = {
   },
 
   idempotency: {
-    ttlSeconds: parseInt(process.env.IDEMPOTENCY_TTL_SECONDS || String(24 * 60 * 60), 10), 
+    ttlSeconds: parseInt(process.env.IDEMPOTENCY_TTL_SECONDS || String(24 * 60 * 60), 10),
     tableName: process.env.DYNAMODB_IDEMPOTENCY_TABLE || 'IdempotencyKeys',
   },
 
   sqs: {
-    // URL of the main file-processing queue. If unset (e.g. in unit tests
-    // that don't touch SQS), publish calls will fail loudly so misconfiguration
-    // is caught early rather than silently dropped.
     queueUrl: process.env.SQS_QUEUE_URL || '',
   },
 
   rateLimit: {
     redisUrl: process.env.REDIS_URL || undefined,
-    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10), // 1 minute
-    maxRequests: parseInt(process.env.RATE_LIMIT_MAX || '30', 10), // 30 requests per minute
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),
+    maxRequests: parseInt(process.env.RATE_LIMIT_MAX || '30', 10),
   },
 };
 
