@@ -1,6 +1,5 @@
 import { NotFoundError } from '../../src/utils/errors.js';
 
-// Shared, module-level "bucket" simulating S3 object existence, keyed by S3 key.
 let objects = new Map();
 let putUrlCounter = 0;
 
@@ -38,7 +37,7 @@ export default class FakeStorageService {
     return `https://fake-s3.local/${key}?get-token=${Date.now()}`;
   }
 
-  async createMultipartUpload({ key, contentType }) {
+  async createMultipartUpload({ _key, _contentType } = {}) {
     return { uploadId: `fake-upload-id-${Date.now()}` };
   }
 
@@ -46,18 +45,14 @@ export default class FakeStorageService {
     return `https://fake-s3.local/${key}?uploadId=${uploadId}&partNumber=${partNumber}`;
   }
 
-  async completeMultipartUpload({ key, uploadId, parts }) {
+  async completeMultipartUpload({ _key, _uploadId, _parts } = {}) {
     return { etag: '"fake-multipart-etag"' };
   }
 
-  async abortMultipartUpload({ key, uploadId }) {
+  async abortMultipartUpload({ _key, _uploadId } = {}) {
     return { aborted: true };
   }
 
-  /**
-   * Test helper standing in for "the client actually PUT bytes to the
-   * presigned URL". Not part of the real StorageService interface.
-   */
   static __simulateClientPut(key, { size = 1024, contentType = 'application/octet-stream' } = {}) {
     objects.set(key, { size, etag: `"etag-${key}"`, contentType });
   }
