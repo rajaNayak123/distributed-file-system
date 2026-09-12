@@ -1,17 +1,5 @@
 import { processMetadataValidation } from '../../src/processors/metadata.processor.js';
 
-/**
- * Unit tests for metadata.processor.js
- *
- * All AWS calls are replaced with in-memory fakes — no LocalStack needed.
- * Tests verify:
- *   - Matching content-type returns {validated: true}.
- *   - Mismatched content-type returns {mismatch: true} but does NOT throw.
- *   - Missing S3 object is skipped without throwing.
- *   - Unexpected S3 errors propagate (so SQS retries).
- *   - Files not in COMPLETED status are skipped.
- *   - Deleted files are skipped.
- */
 describe('metadata.processor — unit', () => {
   const userId = 'user-456';
   const fileId = 'file-def';
@@ -62,7 +50,6 @@ describe('metadata.processor — unit', () => {
     const s3Client = makeS3Client('application/octet-stream');
     const filesRepository = makeFilesRepository({ contentType: 'application/pdf' });
 
-    // Should not throw — mismatch is non-fatal
     const result = await processMetadataValidation(
       { fileId, userId, s3Key },
       { s3Client, filesRepository }
@@ -74,7 +61,6 @@ describe('metadata.processor — unit', () => {
   });
 
   it('ignores charset params when comparing content-types', async () => {
-    // S3 may add '; charset=utf-8' to text/plain
     const s3Client = makeS3Client('text/plain; charset=utf-8');
     const filesRepository = makeFilesRepository({ contentType: 'text/plain' });
 
