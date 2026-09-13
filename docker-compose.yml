@@ -1,28 +1,14 @@
-version: '3.9'
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Phase 6 topology: 3 API replicas behind nginx + 2 worker replicas consuming
-# the SQS file-processing-queue.
-#
-# External entry point: http://localhost:3000 → nginx → api-1 / api-2 / api-3
-# Worker replicas:       worker-1, worker-2 (no port binding, queue-driven)
-#
-# SQS queues are created by the LocalStack init script on startup.
-# See infra/docker/localstack-init/01-create-resources.sh.
-# See docs/architecture.md §"Phase 6 topology" for the full diagram.
-# ─────────────────────────────────────────────────────────────────────────────
-
 services:
-  # ── Mock AWS dependencies ─────────────────────────────────────────────────
+  # Mock AWS dependencies 
   localstack:
     image: localstack/localstack:3.5
     container_name: dfs-localstack
     ports:
-      - '4566:4566'
+      - '${LOCALSTACK_PORT:-4566}:4566'
     environment:
-      - SERVICES=s3,sqs
-      - DEFAULT_REGION=us-east-1
-      - PERSISTENCE=0
+      - SERVICES=${LOCALSTACK_SERVICES:-s3,sqs}
+      - DEFAULT_REGION=${AWS_REGION:-us-east-1}
+      - PERSISTENCE=${LOCALSTACK_PERSISTENCE:-0}
     volumes:
       - './infra/docker/localstack-init:/etc/localstack/init/ready.d'
     healthcheck:
@@ -36,9 +22,9 @@ services:
     container_name: dfs-dynamodb-local
     command: ['-jar', 'DynamoDBLocal.jar', '-sharedDb', '-inMemory']
     ports:
-      - '8000:8000'
+      - '${DYNAMODB_PORT:-8000}:8000'
     healthcheck:
-      test: ['CMD-SHELL', 'curl -sf http://localhost:8000/shell/ || exit 1']
+      test: ['CMD-SHELL', 'curl -s -o /dev/null http://localhost:8000/ || exit 1']
       interval: 5s
       timeout: 5s
       retries: 10
@@ -52,19 +38,27 @@ services:
       dynamodb-local:
         condition: service_healthy
     environment:
-      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
-      - AWS_REGION=us-east-1
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - DYNAMODB_FILES_TABLE=Files
-      - DYNAMODB_USERS_TABLE=Users
+      - DYNAMODB_ENDPOINT=${DYNAMODB_ENDPOINT:-http://dynamodb-local:8000}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test}
+      - DYNAMODB_FILES_TABLE=${DYNAMODB_FILES_TABLE:-Files}
+      - DYNAMODB_USERS_TABLE=${DYNAMODB_USERS_TABLE:-Users}
+      - DYNAMODB_IDEMPOTENCY_TABLE=${DYNAMODB_IDEMPOTENCY_TABLE:-IdempotencyKeys}
     restart: 'no'
 
-  # ── API replicas ──────────────────────────────────────────────────────────
-  # All three share identical config. They are stateless: any replica can serve
-  # any request. State lives in DynamoDB (metadata) and S3 (bytes) only.
-  # No VOLUME is declared — the API never writes to disk (see Dockerfile comment).
+  redis:
+    image: redis:7-alpine
+    container_name: dfs-redis
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
+  # API replicas 
   api-1:
     build:
       context: ./apps/api
@@ -72,28 +66,38 @@ services:
     container_name: dfs-api-1
     hostname: api-1
     environment: &api-env
-      - NODE_ENV=development
-      - PORT=3000
-      - JWT_ACCESS_SECRET=dev-access-secret-change-me
-      - JWT_REFRESH_SECRET=dev-refresh-secret-change-me
-      - AWS_REGION=us-east-1
-      - S3_ENDPOINT=http://localstack:4566
-      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
-      - SQS_ENDPOINT=http://localstack:4566
-      - SQS_QUEUE_URL=http://localstack:4566/000000000000/file-processing-queue
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - S3_FORCE_PATH_STYLE=true
-      - S3_BUCKET=file-storage-dev
-      - DYNAMODB_FILES_TABLE=Files
-      - DYNAMODB_USERS_TABLE=Users
-      - DYNAMODB_IDEMPOTENCY_TABLE=IdempotencyKeys
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=${PORT:-3000}
+      - JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET:-dev-access-secret-change-me}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-dev-refresh-secret-change-me}
+      - JWT_ACCESS_EXPIRES_IN=${JWT_ACCESS_EXPIRES_IN:-15m}
+      - JWT_REFRESH_EXPIRES_IN=${JWT_REFRESH_EXPIRES_IN:-7d}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - S3_ENDPOINT=${S3_ENDPOINT:-http://localstack:4566}
+      - DYNAMODB_ENDPOINT=${DYNAMODB_ENDPOINT:-http://dynamodb-local:8000}
+      - SQS_ENDPOINT=${SQS_ENDPOINT:-http://localstack:4566}
+      - SQS_QUEUE_URL=${SQS_QUEUE_URL:-http://localstack:4566/000000000000/file-processing-queue}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test}
+      - S3_FORCE_PATH_STYLE=${S3_FORCE_PATH_STYLE:-true}
+      - S3_BUCKET=${S3_BUCKET:-file-storage-dev}
+      - DYNAMODB_FILES_TABLE=${DYNAMODB_FILES_TABLE:-Files}
+      - DYNAMODB_USERS_TABLE=${DYNAMODB_USERS_TABLE:-Users}
+      - DYNAMODB_IDEMPOTENCY_TABLE=${DYNAMODB_IDEMPOTENCY_TABLE:-IdempotencyKeys}
+      - PRESIGNED_PUT_EXPIRY_SECONDS=${PRESIGNED_PUT_EXPIRY_SECONDS:-900}
+      - PRESIGNED_GET_EXPIRY_SECONDS=${PRESIGNED_GET_EXPIRY_SECONDS:-300}
+      - MAX_FILE_SIZE_BYTES=${MAX_FILE_SIZE_BYTES:-5368709120}
+      - ALLOWED_CONTENT_TYPES=${ALLOWED_CONTENT_TYPES:-}
+      - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
+      - RATE_LIMIT_MAX=${RATE_LIMIT_MAX:-30}
     depends_on:
       localstack:
         condition: service_healthy
       dynamodb-init:
         condition: service_completed_successfully
-    # No host port binding — traffic arrives via nginx only.
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/ready || exit 1']
       interval: 10s
@@ -113,6 +117,8 @@ services:
         condition: service_healthy
       dynamodb-init:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/ready || exit 1']
       interval: 10s
@@ -132,6 +138,8 @@ services:
         condition: service_healthy
       dynamodb-init:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/ready || exit 1']
       interval: 10s
@@ -139,12 +147,7 @@ services:
       retries: 3
       start_period: 15s
 
-  # ── Worker replicas ───────────────────────────────────────────────────────
-  # Two identical worker replicas consuming from the same SQS queue.
-  # This demonstrates horizontal scalability: both can process messages
-  # concurrently; SQS visibility timeout prevents double-processing.
-  # In production this would be N ECS tasks or Lambda concurrency.
-
+  # Worker replicas 
   worker-1:
     build:
       context: ./apps/worker
@@ -152,18 +155,25 @@ services:
     container_name: dfs-worker-1
     hostname: worker-1
     environment: &worker-env
-      - NODE_ENV=development
-      - AWS_REGION=us-east-1
-      - S3_ENDPOINT=http://localstack:4566
-      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
-      - SQS_ENDPOINT=http://localstack:4566
-      - SQS_QUEUE_URL=http://localstack:4566/000000000000/file-processing-queue
-      - SQS_DLQ_URL=http://localstack:4566/000000000000/file-processing-dlq
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - S3_FORCE_PATH_STYLE=true
-      - S3_BUCKET=file-storage-dev
-      - DYNAMODB_FILES_TABLE=Files
+      - NODE_ENV=${NODE_ENV:-development}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - S3_ENDPOINT=${S3_ENDPOINT:-http://localstack:4566}
+      - DYNAMODB_ENDPOINT=${DYNAMODB_ENDPOINT:-http://dynamodb-local:8000}
+      - SQS_ENDPOINT=${SQS_ENDPOINT:-http://localstack:4566}
+      - SQS_QUEUE_URL=${SQS_QUEUE_URL:-http://localstack:4566/000000000000/file-processing-queue}
+      - SQS_DLQ_URL=${SQS_DLQ_URL:-http://localstack:4566/000000000000/file-processing-dlq}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test}
+      - S3_FORCE_PATH_STYLE=${S3_FORCE_PATH_STYLE:-true}
+      - S3_BUCKET=${S3_BUCKET:-file-storage-dev}
+      - DYNAMODB_FILES_TABLE=${DYNAMODB_FILES_TABLE:-Files}
+      - CLEANUP_CRON_SCHEDULE=${CLEANUP_CRON_SCHEDULE:-0 * * * *}
+      - CLEANUP_RETENTION_HOURS=${CLEANUP_RETENTION_HOURS:-24}
+      - CLEANUP_STUCK_COMPLETING_HOURS=${CLEANUP_STUCK_COMPLETING_HOURS:-1}
+      - RECONCILIATION_CRON_SCHEDULE=${RECONCILIATION_CRON_SCHEDULE:-*/15 * * * *}
+      - RECONCILIATION_STUCK_MINUTES=${RECONCILIATION_STUCK_MINUTES:-30}
+      - RECONCILIATION_UNVERIFIED_MINUTES=${RECONCILIATION_UNVERIFIED_MINUTES:-15}
+      - RECONCILIATION_ORPHAN_GRACE_MINUTES=${RECONCILIATION_ORPHAN_GRACE_MINUTES:-60}
     depends_on:
       localstack:
         condition: service_healthy
@@ -183,22 +193,43 @@ services:
       dynamodb-init:
         condition: service_completed_successfully
 
-  # ── Load balancer ─────────────────────────────────────────────────────────
-  # nginx round-robins across all three API replicas and fails over to the
-  # remaining healthy instances when one stops responding to /ready.
-  # In production this role is played by an AWS Application Load Balancer (ALB).
-  # See infra/docker/nginx.conf for the upstream and health-check directives.
+  # Load balancer 
   nginx:
     image: nginx:1.27-alpine
     container_name: dfs-nginx
     ports:
-      - '3000:80'     # All external traffic enters here
+      - '${API_PORT:-3000}:80'
     volumes:
       - './infra/docker/nginx.conf:/etc/nginx/nginx.conf:ro'
     depends_on:
-      - api-1
-      - api-2
-      - api-3
+      api-1:
+        condition: service_healthy
+      api-2:
+        condition: service_healthy
+      api-3:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1/nginx-health || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Web Frontend 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: dfs-frontend
+    ports:
+      - '${FRONTEND_PORT:-5173}:80'
+    depends_on:
+      nginx:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1/healthz || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 networks:
   default:
