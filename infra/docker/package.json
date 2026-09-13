@@ -1,0 +1,10 @@
+{
+  "name": "dfs-dynamodb-init",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "init-dynamodb.js",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.629.0"
+  }
+}
