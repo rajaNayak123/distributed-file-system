@@ -285,3 +285,58 @@ time, after the audit above:
   `{skipped: true}`). Without this guard, a concurrent second write would succeed
   but would silently overwrite a valid checksum with an identical value — harmless,
   but wasteful of a DynamoDB write unit.
+
+## Phase 7
+
+- **S3 and DynamoDB are not one atomic transaction; bounded staleness via reconciliation loop.**
+  S3 and DynamoDB are separate distributed services with independent APIs, consensus
+  models, and failure domains. Distributed transactions (2PC) across them do not exist.
+  Even with deliberate write ordering, failures at network boundaries inevitably produce
+  consistency gaps:
+  - *Case A (DynamoDB says exists, S3 missing)*: An upload record is left in `UPLOADING`,
+    `COMPLETING`, or even falsely marked `COMPLETED` when the S3 object does not exist
+    (e.g. client never uploaded bytes, PUT was aborted, or an S3 delete succeeded while
+    the subsequent DynamoDB delete failed).
+  - *Case B (S3 object exists, DynamoDB missing or failed)*: S3 retains an object with no
+    active DynamoDB record (e.g. DynamoDB put failed after S3 PUT, or an abandoned upload
+    part), causing ongoing storage cost leakage.
+  The reconciliation loop (`runReconciliation`) in `apps/worker` is the anti-entropy
+  mechanism that bounds staleness to the configured cron interval (default: 15 minutes).
+  For Case A, suspicious records are checked with S3 `HeadObject`; missing objects are
+  explicitly marked `FAILED` with `failureReason: "reconciliation: object missing"` rather
+  than silently persisting as completed. For Case B, periodic `ListObjectsV2` sweeps past
+  an orphan grace period (default: 60 minutes, guarding against in-flight uploads) purge
+  orphaned objects from S3.
+
+- **Deduplication: ContentHashIndex GSI and SHA-256 collision safety.**
+  SHA-256 produces a 256-bit cryptographic digest ($2^{256} \approx 1.15 \times 10^{77}$
+  possible values). By the birthday paradox, reaching even a 50% probability of a single
+  hash collision requires hashing approximately $2^{128} \approx 3.4 \times 10^{38}$
+  distinct files. For an enterprise storage system holding 1 billion ($10^9$) files, the
+  collision probability is below $10^{-59}$ — dozens of orders of magnitude lower than the
+  rate of uncorrectable hardware bit-flips or DRAM cosmic-ray corruption. Content hashing
+  is therefore mathematically safe for deduplication without expensive byte-by-byte
+  stream comparison.
+  To look up existing content by hash efficiently, we add the `ContentHashIndex` Global
+  Secondary Index (PK: `contentHash`) on the `Files` table. Without this GSI, detecting
+  duplicates would require an $O(N)$ table scan on every completed upload.
+  When an upload completes, the worker checks `ContentHashIndex`. If an identical file
+  exists, the new file points its `s3Key` to the canonical object, sets `isDedup: true`,
+  increments the canonical object's atomic `refCount`, and immediately deletes the redundant
+  newly uploaded S3 object. On deletion, an alias file decrements the canonical `refCount`
+  without deleting S3; the canonical file only deletes the S3 object when `refCount <= 1`
+  (last reference).
+
+- **Redis architectural justification for cross-instance rate limiting.**
+  In our horizontally scaled API tier (3 replicas `api-1`, `api-2`, `api-3` behind nginx),
+  in-memory rate limiters fail because clients can bypass limits by spraying requests
+  across replicas, multiplying allowable traffic by $N$.
+  DynamoDB is inappropriate for per-request rate limiting because it incurs write latency
+  (10–20ms), high cost ($WCU$ consumption on every incoming request), and partition
+  key hot-spotting.
+  Redis is specifically chosen because it provides in-memory sub-millisecond atomic
+  operations (`INCR` + `EXPIRE`), native key TTL expiration, and negligible CPU overhead.
+  The rate limiter uses an atomic fixed window counter returning HTTP 429 Too Many Requests
+  with standard `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and
+  `X-RateLimit-Reset` headers.
+
